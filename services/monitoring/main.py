@@ -161,6 +161,12 @@ def get_service_health() -> Dict:
 async def root():
     return {"message": "System Monitoring Service is running", "status": "healthy"}
 
+# Health endpoint
+@app.get("/health")
+async def health():
+    """Health check endpoint"""
+    return {"status": "healthy", "service": "monitoring", "timestamp": datetime.utcnow().isoformat()}
+
 # Monitoring endpoints
 @app.get("/metrics")
 async def get_metrics(

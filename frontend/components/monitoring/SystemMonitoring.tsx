@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Activity, Server, Database, Cpu, AlertTriangle, CheckCircle, RefreshCw } from 'lucide-react';
 
 interface SystemStats {
@@ -34,9 +34,9 @@ function SystemMonitoring({ refreshInterval = 30 }: SystemMonitoringProps) {
     fetchSystemData();
     const interval = setInterval(fetchSystemData, refreshInterval * 1000);
     return () => clearInterval(interval);
-  }, [refreshInterval]);
+  }, [fetchSystemData, refreshInterval]);
 
-  const fetchSystemData = async () => {
+  const fetchSystemData = useCallback(async () => {
     try {
       setLoading(true);
       const [statsResponse, alertsResponse, healthResponse] = await Promise.all([
@@ -66,7 +66,7 @@ function SystemMonitoring({ refreshInterval = 30 }: SystemMonitoringProps) {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   const getStatusColor = (value: number, thresholds: { warning: number; critical: number }) => {
     if (value >= thresholds.critical) return 'text-red-600';
@@ -108,6 +108,16 @@ function SystemMonitoring({ refreshInterval = 30 }: SystemMonitoringProps) {
       </div>
     );
   }
+
+  // Provide default values to prevent undefined errors
+  const safeStats = {
+    system_load: stats?.system_load ?? 0,
+    memory_usage: stats?.memory_usage ?? 0,
+    active_users: stats?.active_users ?? 0,
+    database_connections: stats?.database_connections ?? 0,
+    api_requests_per_minute: stats?.api_requests_per_minute ?? 0,
+    timestamp: stats?.timestamp ?? new Date().toISOString()
+  };
 
   return (
     <div className="space-y-6">
@@ -168,21 +178,21 @@ function SystemMonitoring({ refreshInterval = 30 }: SystemMonitoringProps) {
                 <Cpu className="w-5 h-5 text-blue-500" />
                 <span className="text-sm font-medium text-gray-700">CPU Usage</span>
               </div>
-              {getStatusIcon(stats.system_load, { warning: 70, critical: 90 })}
+              {getStatusIcon(safeStats.system_load, { warning: 70, critical: 90 })}
             </div>
             <div className="space-y-2">
               <div className="flex items-baseline space-x-2">
-                <span className={`text-2xl font-bold ${getStatusColor(stats.system_load, { warning: 70, critical: 90 })}`}>
-                  {stats.system_load.toFixed(1)}%
+                <span className={`text-2xl font-bold ${getStatusColor(safeStats.system_load, { warning: 70, critical: 90 })}`}>
+                  {safeStats.system_load.toFixed(1)}%
                 </span>
               </div>
               <div className="w-full bg-gray-200 rounded-full h-2">
                 <div
                   className={`h-2 rounded-full ${
-                    stats.system_load >= 90 ? 'bg-red-500' :
-                    stats.system_load >= 70 ? 'bg-yellow-500' : 'bg-green-500'
+                    safeStats.system_load >= 90 ? 'bg-red-500' :
+                    safeStats.system_load >= 70 ? 'bg-yellow-500' : 'bg-green-500'
                   }`}
-                  style={{ width: `${Math.min(stats.system_load, 100)}%` }}
+                  style={{ width: `${Math.min(safeStats.system_load, 100)}%` }}
                 />
               </div>
             </div>
@@ -195,21 +205,21 @@ function SystemMonitoring({ refreshInterval = 30 }: SystemMonitoringProps) {
                 <Server className="w-5 h-5 text-green-500" />
                 <span className="text-sm font-medium text-gray-700">Memory Usage</span>
               </div>
-              {getStatusIcon(stats.memory_usage, { warning: 80, critical: 90 })}
+              {getStatusIcon(safeStats.memory_usage, { warning: 80, critical: 90 })}
             </div>
             <div className="space-y-2">
               <div className="flex items-baseline space-x-2">
-                <span className={`text-2xl font-bold ${getStatusColor(stats.memory_usage, { warning: 80, critical: 90 })}`}>
-                  {stats.memory_usage.toFixed(1)}%
+                <span className={`text-2xl font-bold ${getStatusColor(safeStats.memory_usage, { warning: 80, critical: 90 })}`}>
+                  {safeStats.memory_usage.toFixed(1)}%
                 </span>
               </div>
               <div className="w-full bg-gray-200 rounded-full h-2">
                 <div
                   className={`h-2 rounded-full ${
-                    stats.memory_usage >= 90 ? 'bg-red-500' :
-                    stats.memory_usage >= 80 ? 'bg-yellow-500' : 'bg-green-500'
+                    safeStats.memory_usage >= 90 ? 'bg-red-500' :
+                    safeStats.memory_usage >= 80 ? 'bg-yellow-500' : 'bg-green-500'
                   }`}
-                  style={{ width: `${Math.min(stats.memory_usage, 100)}%` }}
+                  style={{ width: `${Math.min(safeStats.memory_usage, 100)}%` }}
                 />
               </div>
             </div>
@@ -226,7 +236,7 @@ function SystemMonitoring({ refreshInterval = 30 }: SystemMonitoringProps) {
             <div className="space-y-2">
               <div className="flex items-baseline space-x-2">
                 <span className="text-2xl font-bold text-gray-900">
-                  {stats.active_users}
+                  {safeStats.active_users}
                 </span>
               </div>
               <p className="text-sm text-gray-500">Currently online</p>
@@ -244,7 +254,7 @@ function SystemMonitoring({ refreshInterval = 30 }: SystemMonitoringProps) {
             <div className="space-y-2">
               <div className="flex items-baseline space-x-2">
                 <span className="text-2xl font-bold text-gray-900">
-                  {stats.database_connections}
+                  {safeStats.database_connections}
                 </span>
               </div>
               <p className="text-sm text-gray-500">Active connections</p>

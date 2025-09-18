@@ -34,6 +34,8 @@ services:
       - name: auth
         paths:
           - /api/auth
+        strip_path: true
+        path_handling: v0
 
   - name: user-service
     url: http://user-service:8011/users
@@ -108,6 +110,8 @@ services:
       - name: exam-sections
         paths:
           - /api/exam-sections
+        strip_path: true
+        path_handling: v0
 
   - name: marks-service
     url: http://marks-service:8014/marks
@@ -115,9 +119,13 @@ services:
       - name: marks
         paths:
           - /api/marks
+        strip_path: true
+        path_handling: v0
       - name: marks-template
         paths:
           - /api/marks/*/template
+        strip_path: true
+        path_handling: v0
 
   - name: analytics-dashboard-stats-service
     url: http://analytics-service:8015/dashboard-stats
@@ -165,36 +173,52 @@ services:
         path_handling: v0
 
   - name: bulk-service
-    url: http://bulk-service:8016/bulk
+    url: http://bulk-service:8016
     routes:
       - name: bulk
         paths:
           - /api/bulk
+        strip_path: true
+        path_handling: v0
 
   - name: export-service
-    url: http://export-service:8017/exports
+    url: http://export-service:8017
     routes:
       - name: exports
         paths:
           - /api/exports
+        strip_path: true
+        path_handling: v0
       - name: export-users
         paths:
           - /api/exports/users
+        strip_path: true
+        path_handling: v0
       - name: export-marks
         paths:
           - /api/exports/marks
+        strip_path: true
+        path_handling: v0
       - name: export-analytics
         paths:
           - /api/exports/analytics
+        strip_path: true
+        path_handling: v0
       - name: export-co-attainment
         paths:
           - /api/exports/co-attainment
+        strip_path: true
+        path_handling: v0
       - name: export-comprehensive-report
         paths:
           - /api/exports/comprehensive-report
+        strip_path: true
+        path_handling: v0
       - name: export-reports
         paths:
           - /api/exports/reports
+        strip_path: true
+        path_handling: v0
 
   - name: notification-service
     url: http://notification-service:8018/notifications
@@ -211,17 +235,23 @@ services:
         path_handling: v0
 
   - name: file-service
-    url: http://file-service:8019/files
+    url: http://file-service:8019
     routes:
       - name: files
         paths:
           - /api/files
+        strip_path: true
+        path_handling: v0
       - name: files-download
         paths:
           - /api/files/*/download
+        strip_path: true
+        path_handling: v0
       - name: files-preview
         paths:
           - /api/files/*/preview
+        strip_path: true
+        path_handling: v0
 
   - name: questionbank-service
     url: http://questionbank-service:8020
@@ -237,33 +267,38 @@ services:
         strip_path: true
         path_handling: v0
 
+  - name: monitoring-health-service
+    url: http://monitoring-service:8021/health
+    routes:
+      - name: monitoring-health
+        paths:
+          - /api/monitoring/health
+        strip_path: true
+        path_handling: v0
+
+  - name: monitoring-metrics-service
+    url: http://monitoring-service:8021/metrics
+    routes:
+      - name: monitoring-metrics
+        paths:
+          - /api/monitoring/metrics
+        strip_path: true
+        path_handling: v0
+
+  - name: monitoring-alerts-service
+    url: http://monitoring-service:8021/alerts
+    routes:
+      - name: monitoring-alerts
+        paths:
+          - /api/monitoring/alerts
+        strip_path: true
+        path_handling: v0
+
   - name: monitoring-service
     url: http://monitoring-service:8021
     routes:
       - name: monitoring
         paths:
           - /api/monitoring
-      - name: monitoring-health
-        paths:
-          - /api/monitoring/health
-      - name: monitoring-metrics
-        paths:
-          - /api/monitoring/metrics
-      - name: monitoring-logs
-        paths:
-          - /api/monitoring/logs
-      - name: monitoring-alerts
-        paths:
-          - /api/monitoring/alerts
-      - name: monitoring-performance
-        paths:
-          - /api/monitoring/performance
-      - name: monitoring-backup
-        paths:
-          - /api/monitoring/backup
-      - name: monitoring-backups
-        paths:
-          - /api/monitoring/backups
-      - name: monitoring-audit-logs
-        paths:
-          - /api/monitoring/audit-logs
+        strip_path: true
+        path_handling: v0
