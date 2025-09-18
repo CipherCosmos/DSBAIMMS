@@ -71,7 +71,7 @@ export default function AnalyticsPage() {
       // Load dashboard stats
       try {
         const response = await apiClient.getDashboardStats()
-        setDashboardStats(response.data)
+        setDashboardStats(response)
       } catch (error) {
         console.warn('Failed to load dashboard stats:', error)
       }
@@ -79,7 +79,7 @@ export default function AnalyticsPage() {
       // Load CO attainment
       try {
         const response = await apiClient.getCOAttainment()
-        setCOAttainment(response.data)
+        setCOAttainment(response)
       } catch (error) {
         console.warn('Failed to load CO attainment:', error)
       }
@@ -88,7 +88,7 @@ export default function AnalyticsPage() {
       if (user?.role !== 'student') {
         try {
           const response = await apiClient.getPOAttainment()
-          setPOAttainment(response.data)
+          setPOAttainment(response)
         } catch (error) {
           console.warn('Failed to load PO attainment:', error)
         }
@@ -195,7 +195,7 @@ export default function AnalyticsPage() {
                   </div>
                   <div className="ml-4">
                     <p className="text-sm text-gray-600">Total Users</p>
-                    <p className="text-2xl font-bold">{dashboardStats.total_users || 0}</p>
+                    <p className="text-2xl font-bold">{dashboardStats?.total_users || 0}</p>
                   </div>
                 </div>
               </CardContent>
@@ -208,7 +208,7 @@ export default function AnalyticsPage() {
                   </div>
                   <div className="ml-4">
                     <p className="text-sm text-gray-600">Avg CO Attainment</p>
-                    <p className="text-2xl font-bold">{Math.round(dashboardStats.avg_co_attainment || 0)}%</p>
+                    <p className="text-2xl font-bold">{Math.round(dashboardStats?.avg_co_attainment || 0)}%</p>
                   </div>
                 </div>
               </CardContent>
@@ -226,7 +226,7 @@ export default function AnalyticsPage() {
                   </div>
                   <div className="ml-4">
                     <p className="text-sm text-gray-600">Department Users</p>
-                    <p className="text-2xl font-bold">{dashboardStats.department_users || 0}</p>
+                    <p className="text-2xl font-bold">{dashboardStats?.department_users || 0}</p>
                   </div>
                 </div>
               </CardContent>
@@ -239,7 +239,7 @@ export default function AnalyticsPage() {
                   </div>
                   <div className="ml-4">
                     <p className="text-sm text-gray-600">Dept Attainment</p>
-                    <p className="text-2xl font-bold">{Math.round(dashboardStats.avg_department_attainment || 0)}%</p>
+                    <p className="text-2xl font-bold">{Math.round(dashboardStats?.avg_department_attainment || 0)}%</p>
                   </div>
                 </div>
               </CardContent>
@@ -257,7 +257,7 @@ export default function AnalyticsPage() {
                   </div>
                   <div className="ml-4">
                     <p className="text-sm text-gray-600">My Subjects</p>
-                    <p className="text-2xl font-bold">{dashboardStats.my_subjects || 0}</p>
+                    <p className="text-2xl font-bold">{dashboardStats?.my_subjects || 0}</p>
                   </div>
                 </div>
               </CardContent>
@@ -270,7 +270,7 @@ export default function AnalyticsPage() {
                   </div>
                   <div className="ml-4">
                     <p className="text-sm text-gray-600">Class Performance</p>
-                    <p className="text-2xl font-bold">{Math.round(dashboardStats.avg_class_performance || 0)}%</p>
+                    <p className="text-2xl font-bold">{Math.round(dashboardStats?.avg_class_performance || 0)}%</p>
                   </div>
                 </div>
               </CardContent>
@@ -288,7 +288,7 @@ export default function AnalyticsPage() {
                   </div>
                   <div className="ml-4">
                     <p className="text-sm text-gray-600">My Subjects</p>
-                    <p className="text-2xl font-bold">{dashboardStats.my_subjects || 0}</p>
+                    <p className="text-2xl font-bold">{dashboardStats?.my_subjects || 0}</p>
                   </div>
                 </div>
               </CardContent>
@@ -301,7 +301,7 @@ export default function AnalyticsPage() {
                   </div>
                   <div className="ml-4">
                     <p className="text-sm text-gray-600">Overall Percentage</p>
-                    <p className="text-2xl font-bold">{Math.round(dashboardStats.overall_percentage || 0)}%</p>
+                    <p className="text-2xl font-bold">{Math.round(dashboardStats?.overall_percentage || 0)}%</p>
                   </div>
                 </div>
               </CardContent>
@@ -314,7 +314,7 @@ export default function AnalyticsPage() {
                   </div>
                   <div className="ml-4">
                     <p className="text-sm text-gray-600">Exams Taken</p>
-                    <p className="text-2xl font-bold">{dashboardStats.exams_taken || 0}</p>
+                    <p className="text-2xl font-bold">{dashboardStats?.exams_taken || 0}</p>
                   </div>
                 </div>
               </CardContent>
