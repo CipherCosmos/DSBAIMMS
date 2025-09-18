@@ -81,6 +81,11 @@ services:
           - /api/pos
         strip_path: true
         path_handling: v0
+      - name: co-po-mappings
+        paths:
+          - /api/co-po-mappings
+        strip_path: true
+        path_handling: v0
 
   - name: exam-service
     url: http://exam-service:8013

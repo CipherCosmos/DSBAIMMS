@@ -40,9 +40,9 @@ function SystemMonitoring({ refreshInterval = 30 }: SystemMonitoringProps) {
     try {
       setLoading(true);
       const [statsResponse, alertsResponse, healthResponse] = await Promise.all([
-        fetch('/api/monitoring/metrics'),
-        fetch('/api/monitoring/alerts'),
-        fetch('/api/monitoring/health')
+        fetch('http://localhost:8000/api/monitoring/metrics'),
+        fetch('http://localhost:8000/api/monitoring/alerts'),
+        fetch('http://localhost:8000/api/monitoring/health')
       ]);
 
       if (statsResponse.ok) {

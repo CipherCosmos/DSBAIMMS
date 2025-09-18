@@ -1142,6 +1142,225 @@ async def delete_co(
     
     return {"message": "CO deleted successfully"}
 
+# CO-PO Mapping endpoints
+@app.get("/co-po-mappings", response_model=List[COPOMappingResponse])
+async def get_co_po_mappings(
+    co_id: Optional[int] = Query(None),
+    po_id: Optional[int] = Query(None),
+    department_id: Optional[int] = Query(None),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=1000),
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(RoleChecker(["admin", "hod", "teacher", "student"]))
+):
+    """Get all CO-PO mappings with optional filtering"""
+    current_user = db.query(User).filter(User.id == current_user_id).first()
+    
+    query = db.query(COPOMapping).options(
+        joinedload(COPOMapping.co),
+        joinedload(COPOMapping.po)
+    )
+    
+    # Apply role-based filters
+    if current_user.role == "hod":
+        query = query.join(CO).filter(CO.department_id == current_user.department_id)
+    elif current_user.role == "teacher":
+        query = query.join(CO).join(Subject).filter(Subject.teacher_id == current_user_id)
+    elif current_user.role == "student":
+        query = query.join(CO).join(Subject).filter(Subject.class_id == current_user.class_id)
+    
+    # Apply additional filters
+    if co_id:
+        query = query.filter(COPOMapping.co_id == co_id)
+    if po_id:
+        query = query.filter(COPOMapping.po_id == po_id)
+    if department_id:
+        query = query.join(CO).filter(CO.department_id == department_id)
+    
+    mappings = query.offset(skip).limit(limit).all()
+    
+    result = []
+    for mapping in mappings:
+        result.append(COPOMappingResponse(
+            id=mapping.id,
+            co_id=mapping.co_id,
+            po_id=mapping.po_id,
+            mapping_strength=float(mapping.mapping_strength),
+            co_name=mapping.co.name,
+            po_name=mapping.po.name,
+            created_at=mapping.created_at,
+            updated_at=mapping.updated_at
+        ))
+    
+    return result
+
+@app.get("/co-po-mappings/{mapping_id}", response_model=COPOMappingResponse)
+async def get_co_po_mapping(
+    mapping_id: int,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(RoleChecker(["admin", "hod", "teacher", "student"]))
+):
+    """Get a specific CO-PO mapping by ID"""
+    current_user = db.query(User).filter(User.id == current_user_id).first()
+    
+    mapping = db.query(COPOMapping).options(
+        joinedload(COPOMapping.co),
+        joinedload(COPOMapping.po)
+    ).filter(COPOMapping.id == mapping_id).first()
+    
+    if not mapping:
+        raise HTTPException(status_code=404, detail="CO-PO mapping not found")
+    
+    # Apply role-based access control
+    if current_user.role == "hod" and mapping.co.department_id != current_user.department_id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    elif current_user.role == "teacher" and mapping.co.subject.teacher_id != current_user_id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    elif current_user.role == "student" and mapping.co.subject.class_id != current_user.class_id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    return COPOMappingResponse(
+        id=mapping.id,
+        co_id=mapping.co_id,
+        po_id=mapping.po_id,
+        mapping_strength=float(mapping.mapping_strength),
+        co_name=mapping.co.name,
+        po_name=mapping.po.name,
+        created_at=mapping.created_at,
+        updated_at=mapping.updated_at
+    )
+
+@app.post("/co-po-mappings", response_model=COPOMappingResponse)
+async def create_co_po_mapping(
+    mapping_data: COPOMappingCreate,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(RoleChecker(["admin", "hod", "teacher"]))
+):
+    """Create a new CO-PO mapping"""
+    current_user = db.query(User).filter(User.id == current_user_id).first()
+    
+    # Check if CO exists
+    co = db.query(CO).filter(CO.id == mapping_data.co_id).first()
+    if not co:
+        raise HTTPException(status_code=404, detail="CO not found")
+    
+    # Check if PO exists
+    po = db.query(PO).filter(PO.id == mapping_data.po_id).first()
+    if not po:
+        raise HTTPException(status_code=404, detail="PO not found")
+    
+    # Apply role-based access control
+    if current_user.role == "teacher" and co.subject.teacher_id != current_user_id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    elif current_user.role == "hod" and co.department_id != current_user.department_id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    # Check if mapping already exists
+    existing = db.query(COPOMapping).filter(
+        COPOMapping.co_id == mapping_data.co_id,
+        COPOMapping.po_id == mapping_data.po_id
+    ).first()
+    
+    if existing:
+        raise HTTPException(status_code=400, detail="CO-PO mapping already exists")
+    
+    # Create mapping
+    new_mapping = COPOMapping(**mapping_data.dict())
+    db.add(new_mapping)
+    db.commit()
+    db.refresh(new_mapping)
+    
+    # Log the creation
+    log_audit(db, current_user_id, "create", "co_po_mapping", f"Created mapping: {co.name} -> {po.name}")
+    
+    return COPOMappingResponse(
+        id=new_mapping.id,
+        co_id=new_mapping.co_id,
+        po_id=new_mapping.po_id,
+        mapping_strength=float(new_mapping.mapping_strength),
+        co_name=co.name,
+        po_name=po.name,
+        created_at=new_mapping.created_at,
+        updated_at=new_mapping.updated_at
+    )
+
+@app.put("/co-po-mappings/{mapping_id}", response_model=COPOMappingResponse)
+async def update_co_po_mapping(
+    mapping_id: int,
+    mapping_data: COPOMappingUpdate,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(RoleChecker(["admin", "hod", "teacher"]))
+):
+    """Update a CO-PO mapping"""
+    current_user = db.query(User).filter(User.id == current_user_id).first()
+    
+    mapping = db.query(COPOMapping).options(
+        joinedload(COPOMapping.co),
+        joinedload(COPOMapping.po)
+    ).filter(COPOMapping.id == mapping_id).first()
+    
+    if not mapping:
+        raise HTTPException(status_code=404, detail="CO-PO mapping not found")
+    
+    # Apply role-based access control
+    if current_user.role == "teacher" and mapping.co.subject.teacher_id != current_user_id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    elif current_user.role == "hod" and mapping.co.department_id != current_user.department_id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    # Update mapping
+    update_data = mapping_data.dict(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(mapping, field, value)
+    
+    db.commit()
+    db.refresh(mapping)
+    
+    # Log the update
+    log_audit(db, current_user_id, "update", "co_po_mapping", f"Updated mapping: {mapping.co.name} -> {mapping.po.name}")
+    
+    return COPOMappingResponse(
+        id=mapping.id,
+        co_id=mapping.co_id,
+        po_id=mapping.po_id,
+        mapping_strength=float(mapping.mapping_strength),
+        co_name=mapping.co.name,
+        po_name=mapping.po.name,
+        created_at=mapping.created_at,
+        updated_at=mapping.updated_at
+    )
+
+@app.delete("/co-po-mappings/{mapping_id}")
+async def delete_co_po_mapping(
+    mapping_id: int,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(RoleChecker(["admin", "hod", "teacher"]))
+):
+    """Delete a CO-PO mapping"""
+    current_user = db.query(User).filter(User.id == current_user_id).first()
+    
+    mapping = db.query(COPOMapping).options(
+        joinedload(COPOMapping.co),
+        joinedload(COPOMapping.po)
+    ).filter(COPOMapping.id == mapping_id).first()
+    
+    if not mapping:
+        raise HTTPException(status_code=404, detail="CO-PO mapping not found")
+    
+    # Apply role-based access control
+    if current_user.role == "teacher" and mapping.co.subject.teacher_id != current_user_id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    elif current_user.role == "hod" and mapping.co.department_id != current_user.department_id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    # Log the deletion
+    log_audit(db, current_user_id, "delete", "co_po_mapping", f"Deleted mapping: {mapping.co.name} -> {mapping.po.name}")
+    
+    db.delete(mapping)
+    db.commit()
+    
+    return {"message": "CO-PO mapping deleted successfully"}
+
 @app.get("/health")
 async def health_check():
     return {"status": "healthy", "service": "departments"}
