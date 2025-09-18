@@ -1,0 +1,102 @@
+'use client'
+
+import { useState } from 'react'
+import { useRouter } from 'next/navigation'
+import { GraduationCap, Loader2 } from 'lucide-react'
+import { toast } from 'react-hot-toast'
+import { useAuth } from '@/hooks/useAuth'
+
+export default function LoginPage() {
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
+  const [isLoading, setIsLoading] = useState(false)
+  
+  const { login } = useAuth()
+  const router = useRouter()
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setIsLoading(true)
+
+    try {
+      await login(username, password)
+      toast.success('Welcome back!')
+      router.push('/dashboard')
+    } catch (error: any) {
+      toast.error(error.message || 'Login failed')
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
+      <div className="w-full max-w-md bg-white rounded-lg shadow-md">
+        <div className="p-6 space-y-1 text-center">
+          <div className="flex justify-center mb-4">
+            <div className="p-3 rounded-full bg-primary text-primary-foreground">
+              <GraduationCap className="h-8 w-8" />
+            </div>
+          </div>
+          <h1 className="text-2xl font-bold">LMS System (Dev Mode)</h1>
+          <p className="text-muted-foreground">
+            CO/PO-focused Learning Management System
+          </p>
+        </div>
+        <div className="p-6">
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="space-y-2">
+              <label htmlFor="username" className="text-sm font-medium">
+                Username
+              </label>
+              <input
+                id="username"
+                type="text"
+                placeholder="Enter your username"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                required
+                disabled={isLoading}
+                className="w-full px-3 py-2 border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
+              />
+            </div>
+            <div className="space-y-2">
+              <label htmlFor="password" className="text-sm font-medium">
+                Password
+              </label>
+              <input
+                id="password"
+                type="password"
+                placeholder="Enter your password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                disabled={isLoading}
+                className="w-full px-3 py-2 border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
+              />
+            </div>
+            <button
+              type="submit"
+              disabled={isLoading}
+              className="w-full flex items-center justify-center px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 disabled:opacity-50"
+            >
+              {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Sign In
+            </button>
+          </form>
+          
+          <div className="mt-6 text-center text-sm text-muted-foreground">
+            <div className="space-y-1">
+              <p><strong>Demo Credentials:</strong></p>
+              <p>Admin: admin / Admin123!</p>
+              <p>Admin2: admin2 / Admin123!</p>
+              <p>HOD: hod_cse / admin123</p>
+              <p>Teacher: teacher1 / admin123</p>
+              <p>Student: student1 / admin123</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}

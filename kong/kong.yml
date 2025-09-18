@@ -1,0 +1,268 @@
+_format_version: "3.0"
+
+plugins:
+  - name: cors
+    config:
+      origins:
+        - "http://localhost:3000"
+        - "http://127.0.0.1:3000"
+      methods:
+        - GET
+        - POST
+        - PUT
+        - DELETE
+        - OPTIONS
+        - PATCH
+      headers:
+        - Accept
+        - Accept-Version
+        - Content-Length
+        - Content-MD5
+        - Content-Type
+        - Date
+        - X-Auth-Token
+        - Authorization
+      exposed_headers:
+        - X-Auth-Token
+      credentials: true
+      max_age: 3600
+
+services:
+  - name: auth-service
+    url: http://auth-service:8010
+    routes:
+      - name: auth
+        paths:
+          - /api/auth
+
+  - name: user-service
+    url: http://user-service:8011/users
+    routes:
+      - name: users
+        paths:
+          - /api/users
+        strip_path: true
+        path_handling: v0
+
+  - name: user-stats-service
+    url: http://user-service:8011/stats
+    routes:
+      - name: users-stats
+        paths:
+          - /api/users/stats
+        strip_path: true
+        path_handling: v0
+
+  - name: department-service
+    url: http://department-service:8012/departments
+    routes:
+      - name: departments
+        paths:
+          - /api/departments
+        strip_path: true
+        path_handling: v0
+      - name: classes
+        paths:
+          - /api/classes
+        strip_path: true
+        path_handling: v0
+      - name: subjects
+        paths:
+          - /api/subjects
+        strip_path: true
+        path_handling: v0
+      - name: cos
+        paths:
+          - /api/cos
+        strip_path: true
+        path_handling: v0
+      - name: pos
+        paths:
+          - /api/pos
+        strip_path: true
+        path_handling: v0
+
+  - name: exam-service
+    url: http://exam-service:8013
+    routes:
+      - name: exams
+        paths:
+          - /api/exams
+        strip_path: true
+        path_handling: v0
+      - name: questions
+        paths:
+          - /api/questions
+        strip_path: true
+        path_handling: v0
+      - name: questions-enhanced
+        paths:
+          - /api/questions/enhanced
+        strip_path: true
+        path_handling: v0
+      - name: exam-sections
+        paths:
+          - /api/exam-sections
+
+  - name: marks-service
+    url: http://marks-service:8014/marks
+    routes:
+      - name: marks
+        paths:
+          - /api/marks
+      - name: marks-template
+        paths:
+          - /api/marks/*/template
+
+  - name: analytics-service
+    url: http://analytics-service:8015
+    routes:
+      - name: analytics
+        paths:
+          - /api/analytics
+        strip_path: true
+        path_handling: v0
+      - name: analytics-dashboard-stats
+        paths:
+          - /api/analytics/dashboard-stats
+        strip_path: true
+        path_handling: v0
+      - name: analytics-co-attainment
+        paths:
+          - /api/analytics/co-attainment
+        strip_path: true
+        path_handling: v0
+      - name: analytics-po-attainment
+        paths:
+          - /api/analytics/po-attainment
+        strip_path: true
+        path_handling: v0
+      - name: analytics-student-performance
+        paths:
+          - /api/analytics/student-performance
+        strip_path: true
+        path_handling: v0
+      - name: analytics-question-analytics
+        paths:
+          - /api/analytics/question-analytics
+        strip_path: true
+        path_handling: v0
+      - name: analytics-exam-analytics
+        paths:
+          - /api/analytics/exam-analytics
+        strip_path: true
+        path_handling: v0
+      - name: analytics-trends
+        paths:
+          - /api/analytics/trends
+        strip_path: true
+        path_handling: v0
+      - name: analytics-ml-recommendations
+        paths:
+          - /api/analytics/ml-recommendations
+        strip_path: true
+        path_handling: v0
+
+  - name: bulk-service
+    url: http://bulk-service:8016/bulk
+    routes:
+      - name: bulk
+        paths:
+          - /api/bulk
+
+  - name: export-service
+    url: http://export-service:8017/exports
+    routes:
+      - name: exports
+        paths:
+          - /api/exports
+      - name: export-users
+        paths:
+          - /api/exports/users
+      - name: export-marks
+        paths:
+          - /api/exports/marks
+      - name: export-analytics
+        paths:
+          - /api/exports/analytics
+      - name: export-co-attainment
+        paths:
+          - /api/exports/co-attainment
+      - name: export-comprehensive-report
+        paths:
+          - /api/exports/comprehensive-report
+      - name: export-reports
+        paths:
+          - /api/exports/reports
+
+  - name: notification-service
+    url: http://notification-service:8018/notifications
+    routes:
+      - name: notifications
+        paths:
+          - /api/notifications
+        strip_path: true
+        path_handling: v0
+      - name: notifications-ws
+        paths:
+          - /api/notifications/ws
+        strip_path: true
+        path_handling: v0
+
+  - name: file-service
+    url: http://file-service:8019/files
+    routes:
+      - name: files
+        paths:
+          - /api/files
+      - name: files-download
+        paths:
+          - /api/files/*/download
+      - name: files-preview
+        paths:
+          - /api/files/*/preview
+
+  - name: questionbank-service
+    url: http://questionbank-service:8020
+    routes:
+      - name: questionbank
+        paths:
+          - /api/questionbank
+        strip_path: true
+        path_handling: v0
+      - name: questionbank-stats
+        paths:
+          - /api/questionbank/*/stats
+        strip_path: true
+        path_handling: v0
+
+  - name: monitoring-service
+    url: http://monitoring-service:8021
+    routes:
+      - name: monitoring
+        paths:
+          - /api/monitoring
+      - name: monitoring-health
+        paths:
+          - /api/monitoring/health
+      - name: monitoring-metrics
+        paths:
+          - /api/monitoring/metrics
+      - name: monitoring-logs
+        paths:
+          - /api/monitoring/logs
+      - name: monitoring-alerts
+        paths:
+          - /api/monitoring/alerts
+      - name: monitoring-performance
+        paths:
+          - /api/monitoring/performance
+      - name: monitoring-backup
+        paths:
+          - /api/monitoring/backup
+      - name: monitoring-backups
+        paths:
+          - /api/monitoring/backups
+      - name: monitoring-audit-logs
+        paths:
+          - /api/monitoring/audit-logs

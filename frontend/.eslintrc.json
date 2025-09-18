@@ -1,0 +1,15 @@
+{
+  "extends": [
+    "next/core-web-vitals"
+  ],
+  "rules": {
+    "no-unused-vars": "warn",
+    "prefer-const": "warn",
+    "no-var": "error"
+  },
+  "ignorePatterns": [
+    "node_modules/",
+    ".next/",
+    "out/"
+  ]
+}
