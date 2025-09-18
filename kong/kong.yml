@@ -114,52 +114,48 @@ services:
         paths:
           - /api/marks/*/template
 
+  - name: analytics-dashboard-stats-service
+    url: http://analytics-service:8015/dashboard-stats
+    routes:
+      - name: analytics-dashboard-stats
+        paths:
+          - /api/analytics/dashboard-stats
+        strip_path: true
+        path_handling: v0
+
+  - name: analytics-co-attainment-service
+    url: http://analytics-service:8015/co-attainment
+    routes:
+      - name: analytics-co-attainment
+        paths:
+          - /api/analytics/co-attainment
+        strip_path: true
+        path_handling: v0
+
+  - name: analytics-po-attainment-service
+    url: http://analytics-service:8015/po-attainment
+    routes:
+      - name: analytics-po-attainment
+        paths:
+          - /api/analytics/po-attainment
+        strip_path: true
+        path_handling: v0
+
+  - name: analytics-student-performance-service
+    url: http://analytics-service:8015/student-performance
+    routes:
+      - name: analytics-student-performance
+        paths:
+          - /api/analytics/student-performance
+        strip_path: true
+        path_handling: v0
+
   - name: analytics-service
     url: http://analytics-service:8015
     routes:
       - name: analytics
         paths:
           - /api/analytics
-        strip_path: true
-        path_handling: v0
-      - name: analytics-dashboard-stats
-        paths:
-          - /api/analytics/dashboard-stats
-        strip_path: true
-        path_handling: v0
-      - name: analytics-co-attainment
-        paths:
-          - /api/analytics/co-attainment
-        strip_path: true
-        path_handling: v0
-      - name: analytics-po-attainment
-        paths:
-          - /api/analytics/po-attainment
-        strip_path: true
-        path_handling: v0
-      - name: analytics-student-performance
-        paths:
-          - /api/analytics/student-performance
-        strip_path: true
-        path_handling: v0
-      - name: analytics-question-analytics
-        paths:
-          - /api/analytics/question-analytics
-        strip_path: true
-        path_handling: v0
-      - name: analytics-exam-analytics
-        paths:
-          - /api/analytics/exam-analytics
-        strip_path: true
-        path_handling: v0
-      - name: analytics-trends
-        paths:
-          - /api/analytics/trends
-        strip_path: true
-        path_handling: v0
-      - name: analytics-ml-recommendations
-        paths:
-          - /api/analytics/ml-recommendations
         strip_path: true
         path_handling: v0
 
