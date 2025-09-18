@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '@/hooks/useAuth'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -63,11 +63,7 @@ export default function AnalyticsPage() {
 
   const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8', '#82CA9D']
 
-  useEffect(() => {
-    loadAnalytics()
-  }, [])
-
-  const loadAnalytics = async () => {
+  const loadAnalytics = useCallback(async () => {
     try {
       setLoading(true)
       const { apiClient } = await import('@/lib/api')
@@ -112,7 +108,11 @@ export default function AnalyticsPage() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [user?.role])
+
+  useEffect(() => {
+    loadAnalytics()
+  }, [loadAnalytics])
 
   const getAttainmentLevelColor = (level: string) => {
     const colors = {
@@ -123,25 +123,25 @@ export default function AnalyticsPage() {
     return colors[level as keyof typeof colors] || 'bg-gray-100 text-gray-800'
   }
 
-  // Prepare chart data
-  const coChartData = coAttainment.map(co => ({
+  // Prepare chart data with null checks
+  const coChartData = (coAttainment || []).map(co => ({
     name: co.co_name,
     attainment: co.attainment_percentage,
     subject: co.subject_name
   }))
 
-  const poChartData = poAttainment.map(po => ({
+  const poChartData = (poAttainment || []).map(po => ({
     name: po.po_name,
     attainment: po.weighted_attainment,
     cos: po.contributing_cos
   }))
 
-  const studentChartData = studentPerformance.map(student => ({
+  const studentChartData = (studentPerformance || []).map(student => ({
     name: student.student_name.split(' ')[0], // First name only for chart
     percentage: student.overall_percentage
   }))
 
-  const attainmentLevelDistribution = coAttainment.reduce((acc, co) => {
+  const attainmentLevelDistribution = (coAttainment || []).reduce((acc, co) => {
     acc[co.attainment_level] = (acc[co.attainment_level] || 0) + 1
     return acc
   }, {} as Record<string, number>)
@@ -330,7 +330,7 @@ export default function AnalyticsPage() {
               </div>
               <div className="ml-4">
                 <p className="text-sm text-gray-600">Total COs</p>
-                <p className="text-2xl font-bold">{coAttainment.length}</p>
+                <p className="text-2xl font-bold">{coAttainment?.length || 0}</p>
               </div>
             </div>
           </CardContent>
@@ -386,7 +386,7 @@ export default function AnalyticsPage() {
         </Card>
 
         {/* Student Performance Chart (for non-students) */}
-        {user?.role !== 'student' && studentPerformance.length > 0 && (
+        {user?.role !== 'student' && (studentPerformance?.length || 0) > 0 && (
           <Card className="lg:col-span-2">
             <CardHeader>
               <CardTitle>Top Student Performance</CardTitle>
@@ -406,7 +406,7 @@ export default function AnalyticsPage() {
         )}
 
         {/* PO Attainment (for non-students) */}
-        {user?.role !== 'student' && poAttainment.length > 0 && (
+        {user?.role !== 'student' && (poAttainment?.length || 0) > 0 && (
           <Card className="lg:col-span-2">
             <CardHeader>
               <CardTitle>Program Outcomes Attainment</CardTitle>
@@ -445,7 +445,7 @@ export default function AnalyticsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {coAttainment.slice(0, 10).map((co) => (
+                  {(coAttainment || []).slice(0, 10).map((co) => (
                     <tr key={co.co_id} className="border-b hover:bg-gray-50">
                       <td className="p-2 font-medium">{co.co_name}</td>
                       <td className="p-2 text-sm text-gray-600">{co.subject_name}</td>
@@ -464,29 +464,29 @@ export default function AnalyticsPage() {
         </Card>
 
         {/* Student Recommendations (for students) */}
-        {user?.role === 'student' && studentPerformance.length > 0 && (
+        {user?.role === 'student' && (studentPerformance?.length || 0) > 0 && (
           <Card>
             <CardHeader>
               <CardTitle>Personalized Recommendations</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
-                {studentPerformance[0].weak_areas.length > 0 && (
+                {(studentPerformance[0]?.weak_areas?.length || 0) > 0 && (
                   <div>
                     <h4 className="font-medium text-red-600 mb-2">Areas for Improvement:</h4>
                     <ul className="list-disc list-inside space-y-1">
-                      {studentPerformance[0].weak_areas.map((area, index) => (
+                      {(studentPerformance[0]?.weak_areas || []).map((area, index) => (
                         <li key={index} className="text-sm text-gray-600">{area}</li>
                       ))}
                     </ul>
                   </div>
                 )}
                 
-                {studentPerformance[0].recommendations.length > 0 && (
+                {(studentPerformance[0]?.recommendations?.length || 0) > 0 && (
                   <div>
                     <h4 className="font-medium text-blue-600 mb-2">Recommendations:</h4>
                     <ul className="list-disc list-inside space-y-1">
-                      {studentPerformance[0].recommendations.map((rec, index) => (
+                      {(studentPerformance[0]?.recommendations || []).map((rec, index) => (
                         <li key={index} className="text-sm text-gray-600">{rec}</li>
                       ))}
                     </ul>
@@ -498,7 +498,7 @@ export default function AnalyticsPage() {
         )}
 
         {/* PO Attainment Table (for non-students) */}
-        {user?.role !== 'student' && poAttainment.length > 0 && (
+        {user?.role !== 'student' && (poAttainment?.length || 0) > 0 && (
           <Card>
             <CardHeader>
               <CardTitle>Program Outcomes Detail</CardTitle>
@@ -515,7 +515,7 @@ export default function AnalyticsPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {poAttainment.slice(0, 10).map((po) => (
+                    {(poAttainment || []).slice(0, 10).map((po) => (
                       <tr key={po.po_id} className="border-b hover:bg-gray-50">
                         <td className="p-2 font-medium">{po.po_name}</td>
                         <td className="p-2">{po.weighted_attainment.toFixed(1)}%</td>

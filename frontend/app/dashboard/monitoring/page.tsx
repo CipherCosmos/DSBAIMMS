@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import SystemMonitoring from '@/components/monitoring/SystemMonitoring'
 import { apiClient } from '@/lib/api'
+import { useAuth } from '@/hooks/useAuth'
 import { 
   Activity, 
   Server, 
@@ -37,9 +38,32 @@ interface SystemHealth {
 }
 
 export default function MonitoringPage() {
+  const { user } = useAuth()
   const [systemHealth, setSystemHealth] = useState<SystemHealth | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+
+  // Check if user has permission to access monitoring
+  if (user && !['admin', 'hod'].includes(user.role)) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <h1 className="text-3xl font-bold">System Monitoring</h1>
+        </div>
+        <Card>
+          <CardContent className="pt-6">
+            <div className="text-center text-red-600">
+              <XCircle className="h-12 w-12 mx-auto mb-4" />
+              <p className="text-lg font-medium">Access Denied</p>
+              <p className="text-sm text-gray-600 mt-2">
+                You don't have permission to access system monitoring. Only administrators and HODs can view this page.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
 
   const loadSystemHealth = async () => {
     try {

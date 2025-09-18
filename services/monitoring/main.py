@@ -132,27 +132,27 @@ def get_service_health() -> Dict:
         health_status["database"] = {"status": "healthy", "response_time": 0}
     except Exception as e:
         health_status["database"] = {"status": "unhealthy", "error": str(e)}
-    
-    # Check Redis connection
-    try:
-        if redis_client:
-            redis_client.ping()
-            health_status["redis"] = {"status": "healthy", "response_time": 0}
-        else:
-            health_status["redis"] = {"status": "not_configured"}
-    except Exception as e:
-        health_status["redis"] = {"status": "unhealthy", "error": str(e)}
-    
-    # Check disk space
-    try:
-        disk = psutil.disk_usage('/')
-        free_percent = (disk.free / disk.total) * 100
-        if free_percent < 10:
-            health_status["disk"] = {"status": "warning", "free_percent": free_percent}
-        else:
-            health_status["disk"] = {"status": "healthy", "free_percent": free_percent}
-    except Exception as e:
-        health_status["disk"] = {"status": "error", "error": str(e)}
+        
+        # Check Redis connection
+        try:
+            if redis_client:
+                redis_client.ping()
+                health_status["redis"] = {"status": "healthy", "response_time": 0}
+            else:
+                health_status["redis"] = {"status": "not_configured"}
+        except Exception as e:
+            health_status["redis"] = {"status": "unhealthy", "error": str(e)}
+        
+        # Check disk space
+        try:
+            disk = psutil.disk_usage('/')
+            free_percent = (disk.free / disk.total) * 100
+            if free_percent < 10:
+                health_status["disk"] = {"status": "warning", "free_percent": free_percent}
+            else:
+                health_status["disk"] = {"status": "healthy", "free_percent": free_percent}
+        except Exception as e:
+            health_status["disk"] = {"status": "error", "error": str(e)}
     
     return health_status
 
@@ -161,11 +161,6 @@ def get_service_health() -> Dict:
 async def root():
     return {"message": "System Monitoring Service is running", "status": "healthy"}
 
-# Health endpoint
-@app.get("/health")
-async def health():
-    """Health check endpoint"""
-    return {"status": "healthy", "service": "monitoring", "timestamp": datetime.utcnow().isoformat()}
 
 # Monitoring endpoints
 @app.get("/metrics")
@@ -241,12 +236,12 @@ async def get_system_logs(
         query = query.filter(SystemLog.module == module)
     if start_date:
         start_dt = datetime.fromisoformat(start_date)
-        query = query.filter(SystemLog.timestamp >= start_dt)
+        query = query.filter(SystemLog.created_at >= start_dt)
     if end_date:
         end_dt = datetime.fromisoformat(end_date)
-        query = query.filter(SystemLog.timestamp <= end_dt)
+        query = query.filter(SystemLog.created_at <= end_dt)
     
-    logs = query.order_by(SystemLog.timestamp.desc()).offset(skip).limit(limit).all()
+    logs = query.order_by(SystemLog.created_at.desc()).offset(skip).limit(limit).all()
     
     # Log the request
     log_system_event(db, "INFO", f"Logs requested by user {current_user_id}", "monitoring", current_user_id)
@@ -263,7 +258,7 @@ async def get_realtime_stats(
     
     # Get system metrics
     metrics = get_system_metrics()
-    
+        
     # Get database stats
     total_users = db.query(User).count()
     active_users = db.query(User).filter(User.is_active == True).count()
@@ -275,9 +270,9 @@ async def get_realtime_stats(
     
     # Get recent activity
     recent_logs = db.query(SystemLog).filter(
-        SystemLog.timestamp >= datetime.utcnow() - timedelta(hours=1)
-    ).count()
-    
+        SystemLog.created_at >= datetime.utcnow() - timedelta(hours=1)
+        ).count()
+        
     # Log the request
     log_system_event(db, "INFO", f"Stats requested by user {current_user_id}", "monitoring", current_user_id)
     
@@ -308,7 +303,7 @@ async def clear_old_logs(
     
     # Delete old logs
     deleted_count = db.query(SystemLog).filter(
-        SystemLog.timestamp < cutoff_date
+        SystemLog.created_at < cutoff_date
     ).delete()
     
     db.commit()
@@ -361,7 +356,7 @@ async def get_alerts(
     # Check for recent errors
     recent_errors = db.query(SystemLog).filter(
         SystemLog.level == "ERROR",
-        SystemLog.timestamp >= datetime.utcnow() - timedelta(hours=1)
+        SystemLog.created_at >= datetime.utcnow() - timedelta(hours=1)
     ).count()
     
     if recent_errors > 10:
@@ -381,9 +376,6 @@ async def get_alerts(
         "timestamp": datetime.utcnow().isoformat()
     }
 
-@app.get("/health")
-async def health_check():
-    return {"status": "healthy", "service": "monitoring"}
 
 if __name__ == "__main__":
     import uvicorn

@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { Activity, Server, Database, Cpu, AlertTriangle, CheckCircle, RefreshCw } from 'lucide-react';
+import { apiClient } from '@/lib/api';
 
 interface SystemStats {
   timestamp: string;
@@ -30,34 +31,25 @@ function SystemMonitoring({ refreshInterval = 30 }: SystemMonitoringProps) {
   const [loading, setLoading] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
-  useEffect(() => {
-    fetchSystemData();
-    const interval = setInterval(fetchSystemData, refreshInterval * 1000);
-    return () => clearInterval(interval);
-  }, [fetchSystemData, refreshInterval]);
-
   const fetchSystemData = useCallback(async () => {
     try {
       setLoading(true);
-      const [statsResponse, alertsResponse, healthResponse] = await Promise.all([
-        fetch('http://localhost:8000/api/monitoring/metrics'),
-        fetch('http://localhost:8000/api/monitoring/alerts'),
-        fetch('http://localhost:8000/api/monitoring/health')
+      const [statsData, alertsData, healthData] = await Promise.allSettled([
+        apiClient.getSystemMetrics(),
+        apiClient.getSystemAlerts(),
+        apiClient.getSystemHealth()
       ]);
 
-      if (statsResponse.ok) {
-        const statsData = await statsResponse.json();
-        setStats(statsData);
+      if (statsData.status === 'fulfilled') {
+        setStats(statsData.value);
       }
 
-      if (alertsResponse.ok) {
-        const alertsData = await alertsResponse.json();
-        setAlerts(alertsData.alerts || []);
+      if (alertsData.status === 'fulfilled') {
+        setAlerts(alertsData.value.alerts || []);
       }
 
-      if (healthResponse.ok) {
-        const healthData = await healthResponse.json();
-        setHealth(healthData);
+      if (healthData.status === 'fulfilled') {
+        setHealth(healthData.value);
       }
 
       setLastUpdated(new Date());
@@ -67,6 +59,12 @@ function SystemMonitoring({ refreshInterval = 30 }: SystemMonitoringProps) {
       setLoading(false);
     }
   }, []);
+
+  useEffect(() => {
+    fetchSystemData();
+    const interval = setInterval(fetchSystemData, refreshInterval * 1000);
+    return () => clearInterval(interval);
+  }, [fetchSystemData, refreshInterval]);
 
   const getStatusColor = (value: number, thresholds: { warning: number; critical: number }) => {
     if (value >= thresholds.critical) return 'text-red-600';
