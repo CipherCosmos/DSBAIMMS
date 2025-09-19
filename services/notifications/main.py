@@ -98,6 +98,9 @@ async def get_notifications(
     """Get all notifications with optional filtering"""
     current_user = db.query(User).filter(User.id == current_user_id).first()
     
+    if not current_user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
     query = db.query(Notification).options(joinedload(Notification.user))
     
     # Apply role-based filters
@@ -126,6 +129,63 @@ async def get_notifications(
     notifications = query.order_by(Notification.created_at.desc()).offset(skip).limit(limit).all()
     return notifications
 
+@app.get("/notifications/unread-count")
+async def get_unread_count(
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(RoleChecker(["admin", "hod", "teacher", "student"]))
+):
+    """Get unread notification count for current user"""
+    current_user = db.query(User).filter(User.id == current_user_id).first()
+    
+    if not current_user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    query = db.query(Notification).filter(Notification.user_id == current_user_id)
+    
+    # Apply role-based filters
+    if current_user.role == "student":
+        # Students can only see their own notifications
+        query = query.filter(Notification.user_id == current_user_id)
+    elif current_user.role in ["teacher", "hod"]:
+        # Teachers and HODs can see notifications for their department
+        query = query.join(User, User.id == Notification.user_id).filter(
+            User.department_id == current_user.department_id
+        )
+    
+    unread_count = query.filter(Notification.is_read == False).count()
+    
+    return {"unread_count": unread_count}
+
+@app.put("/notifications/mark-all-read")
+async def mark_all_notifications_read(
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(RoleChecker(["admin", "hod", "teacher", "student"]))
+):
+    """Mark all notifications as read for current user"""
+    current_user = db.query(User).filter(User.id == current_user_id).first()
+    
+    if not current_user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Mark all unread notifications as read
+    updated_count = db.query(Notification).filter(
+        Notification.user_id == current_user_id,
+        Notification.is_read == False
+    ).update({
+        "is_read": True,
+        "read_at": datetime.utcnow()
+    })
+    
+    db.commit()
+    
+    # Log audit
+    log_audit(db, current_user_id, "BULK_UPDATE", "Notification", None, None, {
+        "action": "mark_all_read",
+        "count": updated_count
+    })
+    
+    return {"message": f"Marked {updated_count} notifications as read"}
+
 @app.get("/notifications/{notification_id}", response_model=NotificationResponse)
 async def get_notification(
     notification_id: int,
@@ -134,6 +194,9 @@ async def get_notification(
 ):
     """Get a specific notification by ID"""
     current_user = db.query(User).filter(User.id == current_user_id).first()
+    
+    if not current_user:
+        raise HTTPException(status_code=404, detail="User not found")
     
     notification = db.query(Notification).options(joinedload(Notification.user)).filter(
         Notification.id == notification_id
@@ -161,6 +224,9 @@ async def create_notification(
 ):
     """Create a new notification"""
     current_user = db.query(User).filter(User.id == current_user_id).first()
+    
+    if not current_user:
+        raise HTTPException(status_code=404, detail="User not found")
     
     # Check if target user exists
     target_user = db.query(User).filter(User.id == notification.user_id).first()
@@ -235,6 +301,9 @@ async def update_notification(
     """Update an existing notification"""
     current_user = db.query(User).filter(User.id == current_user_id).first()
     
+    if not current_user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
     db_notification = db.query(Notification).filter(Notification.id == notification_id).first()
     if not db_notification:
         raise HTTPException(status_code=404, detail="Notification not found")
@@ -277,6 +346,9 @@ async def delete_notification(
     """Delete a notification"""
     current_user = db.query(User).filter(User.id == current_user_id).first()
     
+    if not current_user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
     db_notification = db.query(Notification).filter(Notification.id == notification_id).first()
     if not db_notification:
         raise HTTPException(status_code=404, detail="Notification not found")
@@ -305,29 +377,6 @@ async def delete_notification(
     
     return {"message": "Notification deleted successfully"}
 
-@app.get("/notifications/unread-count")
-async def get_unread_count(
-    db: Session = Depends(get_db),
-    current_user_id: int = Depends(RoleChecker(["admin", "hod", "teacher", "student"]))
-):
-    """Get unread notification count for current user"""
-    current_user = db.query(User).filter(User.id == current_user_id).first()
-    
-    query = db.query(Notification).filter(Notification.user_id == current_user_id)
-    
-    # Apply role-based filters
-    if current_user.role == "student":
-        # Students can only see their own notifications
-        query = query.filter(Notification.user_id == current_user_id)
-    elif current_user.role in ["teacher", "hod"]:
-        # Teachers and HODs can see notifications for their department
-        query = query.join(User, User.id == Notification.user_id).filter(
-            User.department_id == current_user.department_id
-        )
-    
-    unread_count = query.filter(Notification.is_read == False).count()
-    
-    return {"unread_count": unread_count}
 
 @app.put("/notifications/{notification_id}/read")
 async def mark_notification_read(
@@ -337,6 +386,9 @@ async def mark_notification_read(
 ):
     """Mark a notification as read"""
     current_user = db.query(User).filter(User.id == current_user_id).first()
+    
+    if not current_user:
+        raise HTTPException(status_code=404, detail="User not found")
     
     db_notification = db.query(Notification).filter(Notification.id == notification_id).first()
     if not db_notification:
@@ -363,32 +415,6 @@ async def mark_notification_read(
     
     return {"message": "Notification marked as read"}
 
-@app.put("/notifications/mark-all-read")
-async def mark_all_notifications_read(
-    db: Session = Depends(get_db),
-    current_user_id: int = Depends(RoleChecker(["admin", "hod", "teacher", "student"]))
-):
-    """Mark all notifications as read for current user"""
-    current_user = db.query(User).filter(User.id == current_user_id).first()
-    
-    # Mark all unread notifications as read
-    updated_count = db.query(Notification).filter(
-        Notification.user_id == current_user_id,
-        Notification.is_read == False
-    ).update({
-        "is_read": True,
-        "read_at": datetime.utcnow()
-    })
-    
-    db.commit()
-    
-    # Log audit
-    log_audit(db, current_user_id, "BULK_UPDATE", "Notification", None, None, {
-        "action": "mark_all_read",
-        "count": updated_count
-    })
-    
-    return {"message": f"Marked {updated_count} notifications as read"}
 
 # WebSocket endpoint
 @app.websocket("/ws/{user_id}")
@@ -410,6 +436,9 @@ async def get_realtime_stats(
 ):
     """Get real-time system statistics"""
     current_user = db.query(User).filter(User.id == current_user_id).first()
+    
+    if not current_user:
+        raise HTTPException(status_code=404, detail="User not found")
     
     # Get notification stats
     total_notifications = db.query(Notification).count()

@@ -7,7 +7,7 @@ from shared.models import UserRole, ExamType, ExamStatus, BloomLevel, Difficulty
 class UserBase(BaseModel):
     email: EmailStr
     username: str
-    full_name: str
+    full_name: Optional[str] = None  # Made optional, will be generated from first_name + last_name
     first_name: Optional[str] = None
     last_name: Optional[str] = None
     role: str  # Changed from UserRole to str
@@ -17,7 +17,7 @@ class UserBase(BaseModel):
     class_id: Optional[int] = None
     student_id: Optional[str] = None
     employee_id: Optional[str] = None
-    date_of_birth: Optional[datetime] = None
+    date_of_birth: Optional[str] = None  # Changed to string to handle date input
     gender: Optional[str] = None
     qualification: Optional[str] = None
     experience_years: Optional[int] = None
@@ -33,13 +33,14 @@ class UserUpdate(BaseModel):
     full_name: Optional[str]      = None
     first_name: Optional[str]      = None
     last_name: Optional[str]      = None
+    role: Optional[str]      = None  # Added role to allow role updates
     phone: Optional[str]      = None
     address: Optional[str]      = None
     department_id: Optional[int]      = None
     class_id: Optional[int]      = None
     student_id: Optional[str]      = None
     employee_id: Optional[str]      = None
-    date_of_birth: Optional[datetime]      = None
+    date_of_birth: Optional[str]      = None  # Changed to string to handle date input
     gender: Optional[str]      = None
     qualification: Optional[str]      = None
     experience_years: Optional[int]      = None

@@ -184,15 +184,10 @@ services:
   - name: export-service
     url: http://export-service:8017
     routes:
-      - name: exports
-        paths:
-          - /api/exports
-        strip_path: true
-        path_handling: v0
       - name: export-users
         paths:
-          - /api/exports/users
-        strip_path: true
+          - /api/exports/users/csv
+        strip_path: false
         path_handling: v0
       - name: export-marks
         paths:

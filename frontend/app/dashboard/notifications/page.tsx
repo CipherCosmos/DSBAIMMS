@@ -52,17 +52,21 @@ export default function NotificationsPage() {
 
   const loadUnreadCount = async () => {
     try {
-      const count = await apiClient.getUnreadCount()
+      const response = await apiClient.getUnreadCount()
+      console.log('loadUnreadCount response:', response, typeof response)
+      
+      // Ensure we extract the numeric value properly
+      let count = 0
+      if (typeof response === 'number') {
+        count = response
+      } else if (response && typeof response === 'object' && 'unread_count' in response) {
+        count = Number(response.unread_count) || 0
+      }
+      
       setUnreadCount(count)
     } catch (error) {
-      console.error('Error loading data:', error)
-      // Set empty arrays to prevent map errors
-      if ('setSubjects' in this) setSubjects([])
-      if ('setClasses' in this) setClasses([])
-      if ('setDepartments' in this) setDepartments([])
-      if ('setExams' in this) setExams([])
-      if ('setMarks' in this) setMarks([])
-      if ('setUsers' in this) setUsers([])
+      console.error('Error loading unread count:', error)
+      setUnreadCount(0)
     }
   }
 

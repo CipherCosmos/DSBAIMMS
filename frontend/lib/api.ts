@@ -115,7 +115,7 @@ class ApiClient {
   }
 
   async exportUsers(format: string = 'csv', role?: string, departmentId?: number) {
-    return this.client.get('/api/users/export', { 
+    return this.client.get('/api/exports/users/csv', { 
       params: { format, role, department_id: departmentId } 
     })
   }
@@ -417,7 +417,9 @@ class ApiClient {
   }
 
   async getUnreadCount() {
-    return this.client.get('/api/notifications/unread-count')
+    const response = await this.client.get('/api/notifications/unread-count')
+    console.log('getUnreadCount response:', response)
+    return response
   }
 
   async markAllRead() {
@@ -618,7 +620,7 @@ class ApiClient {
 
   // ==================== EXPORT SERVICE ====================
   async exportUsers(format: string = 'csv', params?: any) {
-    return this.client.get(`/api/users/export`, {
+    return this.client.get(`/api/exports/users/csv`, {
       params: { format, ...params }
     })
   }
