@@ -47,7 +47,8 @@ class ApiClient {
           localStorage.removeItem('refresh_token')
           window.location.href = '/login'
         }
-        return Promise.reject(error.response?.data || error.message)
+        // Return the full error object to preserve structure
+        return Promise.reject(error)
       }
     )
   }
@@ -106,6 +107,14 @@ class ApiClient {
     return this.client.get('/api/users/stats')
   }
 
+  async getFieldConfig(role: string) {
+    return this.client.get(`/api/users/field-config/${role}`)
+  }
+
+  async getAvailableRoles() {
+    return this.client.get('/api/users/available-roles')
+  }
+
   async getSubjects(departmentId?: number) {
     return this.client.get('/api/users/subjects', { params: { department_id: departmentId } })
   }
@@ -122,23 +131,40 @@ class ApiClient {
 
   // ==================== DEPARTMENT SERVICE ====================
   async getDepartments(params?: any) {
-    return this.directServiceCall('http://localhost:8012', 'get', '/departments', undefined, params)
+    return this.client.get('/api/departments', { params })
   }
 
   async getDepartment(id: number) {
-    return this.directServiceCall('http://localhost:8012', 'get', `/departments/${id}`)
+    return this.client.get(`/api/departments/${id}`)
   }
 
   async createDepartment(departmentData: any) {
-    return this.directServiceCall('http://localhost:8012', 'post', '/departments', departmentData)
+    return this.client.post('/api/departments', departmentData)
   }
 
   async updateDepartment(id: number, departmentData: any) {
-    return this.directServiceCall('http://localhost:8012', 'put', `/departments/${id}`, departmentData)
+    return this.client.put(`/api/departments/${id}`, departmentData)
   }
 
   async deleteDepartment(id: number) {
-    return this.directServiceCall('http://localhost:8012', 'delete', `/departments/${id}`)
+    return this.client.delete(`/api/departments/${id}`)
+  }
+
+  // Bulk operations for departments
+  async bulkCreateDepartments(departments: any[]) {
+    return this.client.post('/api/departments/bulk-create', departments)
+  }
+
+  async bulkUpdateDepartments(updates: any[]) {
+    return this.client.post('/api/departments/bulk-update', updates)
+  }
+
+  async bulkDeleteDepartments(ids: number[]) {
+    return this.client.post('/api/departments/bulk-delete', ids)
+  }
+
+  async getAvailableHODs() {
+    return this.client.get('/api/departments/available-hods')
   }
 
   // ==================== CLASS SERVICE ====================

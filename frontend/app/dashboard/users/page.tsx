@@ -90,6 +90,9 @@ export default function UsersPage() {
     byRole: {} as Record<string, number>
   })
   const [availableSubjects, setAvailableSubjects] = useState<any[]>([])
+  const [availableRoles, setAvailableRoles] = useState<any[]>([])
+  const [fieldConfig, setFieldConfig] = useState<any>(null)
+  const [formSelectedRole, setFormSelectedRole] = useState('student')
   const [formData, setFormData] = useState({
     username: '',
     email: '',
@@ -107,7 +110,7 @@ export default function UsersPage() {
     gender: '',
     qualification: '',
     experience_years: '',
-    subject_ids: [] as number[],
+    subjects: [] as string[],
     specializations: [] as string[]
   })
 
@@ -115,6 +118,12 @@ export default function UsersPage() {
     loadUsers()
     loadInitialData()
   }, [])
+
+  useEffect(() => {
+    if (availableRoles.length > 0 && formSelectedRole) {
+      loadFieldConfig(formSelectedRole)
+    }
+  }, [availableRoles, formSelectedRole])
 
   useEffect(() => {
     if (users.length > 0) {
@@ -144,17 +153,35 @@ export default function UsersPage() {
 
   const loadInitialData = async () => {
     try {
-      const [departmentsData, classesData, subjectsData] = await Promise.all([
+      const [departmentsData, classesData, subjectsData, rolesData] = await Promise.all([
         apiClient.getDepartments(),
         apiClient.getClasses(),
-        apiClient.getSubjects()
+        apiClient.getSubjects(),
+        apiClient.getAvailableRoles()
       ])
       setDepartments(Array.isArray(departmentsData) ? departmentsData : [])
       setClasses(Array.isArray(classesData) ? classesData : [])
       setAvailableSubjects(Array.isArray(subjectsData) ? subjectsData : [])
+      setAvailableRoles(Array.isArray(rolesData) ? rolesData : [])
     } catch (error) {
       console.error('Error loading initial data:', error)
     }
+  }
+
+  const loadFieldConfig = async (role: string) => {
+    try {
+      const config = await apiClient.getFieldConfig(role)
+      setFieldConfig(config)
+    } catch (error) {
+      console.error('Error loading field config:', error)
+      setFieldConfig(null)
+    }
+  }
+
+  const handleRoleChange = (role: string) => {
+    setFormSelectedRole(role)
+    setFormData(prev => ({ ...prev, role }))
+    loadFieldConfig(role)
   }
 
   const loadStats = async () => {
@@ -251,7 +278,7 @@ export default function UsersPage() {
       gender: userData.gender || '',
       qualification: userData.qualification || '',
       experience_years: userData.experience_years?.toString() || '',
-      subject_ids: userData.subjects?.map((s: any) => s.id) || [],
+      subjects: userData.subjects?.map((s: any) => s.name) || [],
       specializations: userData.specializations || []
     })
     setShowEditDialog(true)
@@ -947,14 +974,15 @@ export default function UsersPage() {
                   <label className="block text-sm font-medium text-gray-700 mb-1">Role *</label>
                   <select
                     value={formData.role}
-                    onChange={(e) => setFormData(prev => ({ ...prev, role: e.target.value }))}
+                    onChange={(e) => handleRoleChange(e.target.value)}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md"
                     required
                   >
-                    <option value="admin">Admin</option>
-                    <option value="hod">HOD</option>
-                    <option value="teacher">Teacher</option>
-                    <option value="student">Student</option>
+                    {availableRoles.map(role => (
+                      <option key={role.value} value={role.value}>
+                        {role.label}
+                      </option>
+                    ))}
                   </select>
                 </div>
                 <div>
@@ -993,6 +1021,24 @@ export default function UsersPage() {
                 <div className="border-t pt-4">
                   <h4 className="text-lg font-medium text-gray-900 mb-4">Student Information</h4>
                   <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Department
+                        <span className="text-gray-500 text-xs ml-1">(Optional - can be assigned later)</span>
+                      </label>
+                      <select
+                        value={formData.department_id}
+                        onChange={(e) => setFormData(prev => ({ ...prev, department_id: e.target.value }))}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                      >
+                        <option value="">Select Department (Optional)</option>
+                        {departments && Array.isArray(departments) && departments.map((dept: any) => (
+                          <option key={dept.id} value={dept.id}>
+                            {dept.name} {dept.hod_id ? '(Has HOD)' : '(Available)'}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Student ID *</label>
                       <Input
@@ -1053,16 +1099,20 @@ export default function UsersPage() {
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Department *</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Department
+                        <span className="text-gray-500 text-xs ml-1">(Optional - can be assigned later)</span>
+                      </label>
                       <select
                         value={formData.department_id}
                         onChange={(e) => setFormData(prev => ({ ...prev, department_id: e.target.value }))}
                         className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                        required
                       >
-                        <option value="">Select Department</option>
+                        <option value="">Select Department (Optional)</option>
                         {departments && Array.isArray(departments) && departments.map((dept: any) => (
-                          <option key={dept.id} value={dept.id}>{dept.name}</option>
+                          <option key={dept.id} value={dept.id}>
+                            {dept.name} {dept.hod_id ? '(Has HOD)' : '(Available)'}
+                          </option>
                         ))}
                       </select>
                     </div>
@@ -1086,7 +1136,7 @@ export default function UsersPage() {
                     <div className="col-span-2">
                       <label className="block text-sm font-medium text-gray-700 mb-1">Subjects (comma-separated)</label>
                       <Input
-                        value={formData.subjects.join(', ')}
+                        value={formData.subjects?.join(', ') || ''}
                         onChange={(e) => setFormData(prev => ({ 
                           ...prev, 
                           subjects: e.target.value.split(',').map(s => s.trim()).filter(s => s) 
@@ -1097,7 +1147,7 @@ export default function UsersPage() {
                     <div className="col-span-2">
                       <label className="block text-sm font-medium text-gray-700 mb-1">Specializations (comma-separated)</label>
                       <Input
-                        value={formData.specializations.join(', ')}
+                        value={formData.specializations?.join(', ') || ''}
                         onChange={(e) => setFormData(prev => ({ 
                           ...prev, 
                           specializations: e.target.value.split(',').map(s => s.trim()).filter(s => s) 
@@ -1122,16 +1172,20 @@ export default function UsersPage() {
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Department *</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Department
+                        <span className="text-gray-500 text-xs ml-1">(Optional - can be assigned later)</span>
+                      </label>
                       <select
                         value={formData.department_id}
                         onChange={(e) => setFormData(prev => ({ ...prev, department_id: e.target.value }))}
                         className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                        required
                       >
-                        <option value="">Select Department</option>
+                        <option value="">Select Department (Optional)</option>
                         {departments && Array.isArray(departments) && departments.map((dept: any) => (
-                          <option key={dept.id} value={dept.id}>{dept.name}</option>
+                          <option key={dept.id} value={dept.id}>
+                            {dept.name} {dept.hod_id ? '(Has HOD)' : '(Available)'}
+                          </option>
                         ))}
                       </select>
                     </div>
@@ -1238,14 +1292,15 @@ export default function UsersPage() {
                   <label className="block text-sm font-medium text-gray-700 mb-1">Role *</label>
                   <select
                     value={formData.role}
-                    onChange={(e) => setFormData(prev => ({ ...prev, role: e.target.value }))}
+                    onChange={(e) => handleRoleChange(e.target.value)}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md"
                     required
                   >
-                    <option value="admin">Admin</option>
-                    <option value="hod">HOD</option>
-                    <option value="teacher">Teacher</option>
-                    <option value="student">Student</option>
+                    {availableRoles.map(role => (
+                      <option key={role.value} value={role.value}>
+                        {role.label}
+                      </option>
+                    ))}
                   </select>
                 </div>
                 <div>
@@ -1284,6 +1339,24 @@ export default function UsersPage() {
                 <div className="border-t pt-4">
                   <h4 className="text-lg font-medium text-gray-900 mb-4">Student Information</h4>
                   <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Department
+                        <span className="text-gray-500 text-xs ml-1">(Optional - can be assigned later)</span>
+                      </label>
+                      <select
+                        value={formData.department_id}
+                        onChange={(e) => setFormData(prev => ({ ...prev, department_id: e.target.value }))}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                      >
+                        <option value="">Select Department (Optional)</option>
+                        {departments && Array.isArray(departments) && departments.map((dept: any) => (
+                          <option key={dept.id} value={dept.id}>
+                            {dept.name} {dept.hod_id ? '(Has HOD)' : '(Available)'}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Student ID *</label>
                       <Input
@@ -1344,16 +1417,20 @@ export default function UsersPage() {
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Department *</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Department
+                        <span className="text-gray-500 text-xs ml-1">(Optional - can be assigned later)</span>
+                      </label>
                       <select
                         value={formData.department_id}
                         onChange={(e) => setFormData(prev => ({ ...prev, department_id: e.target.value }))}
                         className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                        required
                       >
-                        <option value="">Select Department</option>
+                        <option value="">Select Department (Optional)</option>
                         {departments && Array.isArray(departments) && departments.map((dept: any) => (
-                          <option key={dept.id} value={dept.id}>{dept.name}</option>
+                          <option key={dept.id} value={dept.id}>
+                            {dept.name} {dept.hod_id ? '(Has HOD)' : '(Available)'}
+                          </option>
                         ))}
                       </select>
                     </div>
@@ -1377,7 +1454,7 @@ export default function UsersPage() {
                     <div className="col-span-2">
                       <label className="block text-sm font-medium text-gray-700 mb-1">Subjects (comma-separated)</label>
                       <Input
-                        value={formData.subjects.join(', ')}
+                        value={formData.subjects?.join(', ') || ''}
                         onChange={(e) => setFormData(prev => ({ 
                           ...prev, 
                           subjects: e.target.value.split(',').map(s => s.trim()).filter(s => s) 
@@ -1388,7 +1465,7 @@ export default function UsersPage() {
                     <div className="col-span-2">
                       <label className="block text-sm font-medium text-gray-700 mb-1">Specializations (comma-separated)</label>
                       <Input
-                        value={formData.specializations.join(', ')}
+                        value={formData.specializations?.join(', ') || ''}
                         onChange={(e) => setFormData(prev => ({ 
                           ...prev, 
                           specializations: e.target.value.split(',').map(s => s.trim()).filter(s => s) 
@@ -1413,16 +1490,20 @@ export default function UsersPage() {
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Department *</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Department
+                        <span className="text-gray-500 text-xs ml-1">(Optional - can be assigned later)</span>
+                      </label>
                       <select
                         value={formData.department_id}
                         onChange={(e) => setFormData(prev => ({ ...prev, department_id: e.target.value }))}
                         className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                        required
                       >
-                        <option value="">Select Department</option>
+                        <option value="">Select Department (Optional)</option>
                         {departments && Array.isArray(departments) && departments.map((dept: any) => (
-                          <option key={dept.id} value={dept.id}>{dept.name}</option>
+                          <option key={dept.id} value={dept.id}>
+                            {dept.name} {dept.hod_id ? '(Has HOD)' : '(Available)'}
+                          </option>
                         ))}
                       </select>
                     </div>

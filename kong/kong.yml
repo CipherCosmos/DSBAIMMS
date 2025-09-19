@@ -38,12 +38,12 @@ services:
         path_handling: v0
 
   - name: user-service
-    url: http://user-service:8011/users
+    url: http://user-service:8011
     routes:
       - name: users
         paths:
           - /api/users
-        strip_path: true
+        strip_path: false
         path_handling: v0
 
   - name: user-stats-service
@@ -56,12 +56,17 @@ services:
         path_handling: v0
 
   - name: department-service
-    url: http://department-service:8012/departments
+    url: http://department-service:8012
     routes:
+      - name: departments-available-hods
+        paths:
+          - /api/departments/available-hods
+        strip_path: false
+        path_handling: v0
       - name: departments
         paths:
           - /api/departments
-        strip_path: true
+        strip_path: false
         path_handling: v0
       - name: classes
         paths:

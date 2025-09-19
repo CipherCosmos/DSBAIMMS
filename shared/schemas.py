@@ -1,5 +1,5 @@
 from pydantic import BaseModel, EmailStr
-from typing import Optional, List
+from typing import Optional, List, Dict
 from datetime import datetime
 from shared.models import UserRole, ExamType, ExamStatus, BloomLevel, DifficultyLevel
 
@@ -24,8 +24,64 @@ class UserBase(BaseModel):
     subject_ids: Optional[List[int]] = None  # For teacher subject assignments
     specializations: Optional[List[str]] = None
 
+# Role-based field schemas for dynamic UI
+class AdminUserCreate(BaseModel):
+    """Admin can create any user with minimal required fields"""
+    username: str
+    email: EmailStr
+    password: str
+    role: str
+    # Optional fields that can be set later
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    phone: Optional[str] = None
+    address: Optional[str] = None
+    department_id: Optional[int] = None
+    class_id: Optional[int] = None
+    student_id: Optional[str] = None
+    employee_id: Optional[str] = None
+    date_of_birth: Optional[str] = None
+    gender: Optional[str] = None
+    qualification: Optional[str] = None
+    experience_years: Optional[int] = None
+    subject_ids: Optional[List[int]] = None
+    specializations: Optional[List[str]] = None
+    is_active: Optional[bool] = True
+
+class HODUserCreate(BaseModel):
+    """HOD can only create teachers and students in their department"""
+    username: str
+    email: EmailStr
+    password: str
+    role: str  # Only "teacher" or "student" allowed
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    phone: Optional[str] = None
+    address: Optional[str] = None
+    class_id: Optional[int] = None  # For students
+    student_id: Optional[str] = None  # For students
+    employee_id: Optional[str] = None  # For teachers
+    date_of_birth: Optional[str] = None
+    gender: Optional[str] = None
+    qualification: Optional[str] = None  # For teachers
+    experience_years: Optional[int] = None  # For teachers
+    subject_ids: Optional[List[int]] = None  # For teachers
+    specializations: Optional[List[str]] = None  # For teachers
+    is_active: Optional[bool] = True
+
+class RoleBasedFieldConfig(BaseModel):
+    """Configuration for which fields to show based on role"""
+    role: str
+    required_fields: List[str]
+    optional_fields: List[str]
+    hidden_fields: List[str]
+    field_labels: Dict[str, str]
+    field_placeholders: Dict[str, str]
+    field_validation: Dict[str, str]
+
 class UserCreate(UserBase):
     password: str
+    is_active: Optional[bool] = True
 
 class UserUpdate(BaseModel):
     email: Optional[EmailStr]      = None

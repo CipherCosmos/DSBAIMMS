@@ -8,6 +8,7 @@ from datetime import datetime
 from shared.database import get_db
 from shared.models import Department, User, AuditLog, Class, Subject, PO, CO, COPOMapping
 from shared.auth import RoleChecker
+from shared.permissions import PermissionChecker, Permission
 from shared.schemas import DepartmentResponse, DepartmentCreate, DepartmentUpdate, ClassResponse, ClassCreate, ClassUpdate, SubjectResponse, SubjectCreate, SubjectUpdate, POResponse, POCreate, POUpdate, COResponse, COCreate, COUpdate, COPOMappingResponse, COPOMappingCreate, COPOMappingUpdate
 
 app = FastAPI(title="Department Service", version="1.0.0")
@@ -20,14 +21,23 @@ app.add_middleware(
     allow_headers=["*"]
 )
 
-def log_audit(db: Session, user_id: int, action: str, resource: str, details: str = None):
+def log_audit(db: Session, user_id: int, action: str, table_name: str, details: str = None):
     """Log audit trail"""
+    import json
+    
+    # Format details as JSON string
+    details_json = json.dumps({
+        "message": details or f"{action} on {table_name}",
+        "timestamp": datetime.utcnow().isoformat()
+    })
+    
     audit_log = AuditLog(
         user_id=user_id,
         action=action,
-        resource=resource,
-        details=details or f"{action} on {resource}",
-        timestamp=datetime.utcnow()
+        table_name=table_name,
+        old_values=None,
+        new_values=details_json,
+        created_at=datetime.utcnow()
     )
     db.add(audit_log)
     db.commit()
@@ -36,6 +46,66 @@ def log_audit(db: Session, user_id: int, action: str, resource: str, details: st
 @app.get("/")
 async def root():
     return {"message": "Department Service is running", "status": "healthy"}
+
+# API Gateway routes (for Kong)
+@app.get("/api/departments", response_model=List[DepartmentResponse])
+async def get_departments_api(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=1000),
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(RoleChecker(["admin", "hod"]))
+):
+    """Get departments through API gateway"""
+    return await get_departments(skip, limit, db, current_user_id)
+
+@app.post("/api/departments", response_model=DepartmentResponse)
+async def create_department_api(
+    dept_data: DepartmentCreate,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(RoleChecker(["admin"]))
+):
+    """Create department through API gateway"""
+    return await create_department(dept_data, db, current_user_id)
+
+@app.put("/api/departments/{department_id}", response_model=DepartmentResponse)
+async def update_department_api(
+    department_id: int,
+    dept_data: DepartmentUpdate,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(RoleChecker(["admin"]))
+):
+    """Update department through API gateway"""
+    return await update_department(department_id, dept_data, db, current_user_id)
+
+@app.delete("/api/departments/{department_id}")
+async def delete_department_api(
+    department_id: int,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(RoleChecker(["admin"]))
+):
+    """Delete department through API gateway"""
+    return await delete_department(department_id, db, current_user_id)
+
+@app.get("/api/departments/available-hods")
+async def get_available_hods_api(
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(RoleChecker(["admin", "hod"]))
+):
+    """Get available HODs through API gateway"""
+    try:
+        return await get_available_hods(db, current_user_id)
+    except Exception as e:
+        print(f"Error in get_available_hods_api: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/departments/{department_id}", response_model=DepartmentResponse)
+async def get_department_api(
+    department_id: int,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(RoleChecker(["admin", "hod"]))
+):
+    """Get department through API gateway"""
+    return await get_department(department_id, db, current_user_id)
 
 # Department endpoints
 @app.get("/departments", response_model=List[DepartmentResponse])
@@ -79,8 +149,15 @@ async def get_departments(
 async def create_department(
     dept_data: DepartmentCreate,
     db: Session = Depends(get_db),
-    current_user_id: int = Depends(RoleChecker(["admin"]))
+    current_user_id: int = Depends(RoleChecker(["admin", "hod"]))
 ):
+    # Check permissions
+    current_user = db.query(User).filter(User.id == current_user_id).first()
+    if not current_user:
+        raise HTTPException(status_code=404, detail="Current user not found")
+    
+    if not PermissionChecker.has_permission(str(current_user.role), Permission.CREATE_DEPARTMENTS):
+        raise HTTPException(status_code=403, detail="Insufficient permissions to create departments")
     # Check if department name/code already exists
     existing = db.query(Department).filter(
         (Department.name == dept_data.name) | (Department.code == dept_data.code)
@@ -118,8 +195,15 @@ async def update_department(
     department_id: int,
     dept_data: DepartmentUpdate,
     db: Session = Depends(get_db),
-    current_user_id: int = Depends(RoleChecker(["admin"]))
+    current_user_id: int = Depends(RoleChecker(["admin", "hod"]))
 ):
+    # Check permissions
+    current_user = db.query(User).filter(User.id == current_user_id).first()
+    if not current_user:
+        raise HTTPException(status_code=404, detail="Current user not found")
+    
+    if not PermissionChecker.has_permission(str(current_user.role), Permission.UPDATE_DEPARTMENTS):
+        raise HTTPException(status_code=403, detail="Insufficient permissions to update departments")
     department = db.query(Department).filter(Department.id == department_id).first()
     if not department:
         raise HTTPException(status_code=404, detail="Department not found")
@@ -138,6 +222,27 @@ async def update_department(
     update_data = dept_data.dict(exclude_unset=True)
     for field, value in update_data.items():
         setattr(department, field, value)
+    
+    # Handle HOD assignment
+    if "hod_id" in update_data:
+        hod_id = update_data["hod_id"]
+        if hod_id:
+            # Check if HOD is already assigned to another department
+            existing_dept = db.query(Department).filter(Department.hod_id == hod_id).first()
+            if existing_dept and existing_dept.id != department.id:
+                # HOD is already assigned to another department
+                hod_user = db.query(User).filter(User.id == hod_id).first()
+                hod_name = hod_user.full_name or hod_user.username if hod_user else f"User {hod_id}"
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"HOD '{hod_name}' is already assigned to department '{existing_dept.name}'. Please reassign the HOD first."
+                )
+            
+            # Assign HOD to this department
+            department.hod_id = hod_id
+        else:
+            # Remove HOD from this department
+            department.hod_id = None
     
     db.commit()
     db.refresh(department)
@@ -165,8 +270,15 @@ async def update_department(
 async def delete_department(
     department_id: int,
     db: Session = Depends(get_db),
-    current_user_id: int = Depends(RoleChecker(["admin"]))
+    current_user_id: int = Depends(RoleChecker(["admin", "hod"]))
 ):
+    # Check permissions
+    current_user = db.query(User).filter(User.id == current_user_id).first()
+    if not current_user:
+        raise HTTPException(status_code=404, detail="Current user not found")
+    
+    if not PermissionChecker.has_permission(str(current_user.role), Permission.DELETE_DEPARTMENTS):
+        raise HTTPException(status_code=403, detail="Insufficient permissions to delete departments")
     department = db.query(Department).filter(Department.id == department_id).first()
     if not department:
         raise HTTPException(status_code=404, detail="Department not found")
@@ -183,6 +295,147 @@ async def delete_department(
     db.commit()
     
     return {"message": "Department deleted successfully"}
+
+# Bulk operations for departments
+@app.post("/departments/bulk-create")
+async def bulk_create_departments(
+    departments_data: List[DepartmentCreate],
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(RoleChecker(["admin"]))
+):
+    """Bulk create departments - Admin only"""
+    current_user = db.query(User).filter(User.id == current_user_id).first()
+    if not current_user:
+        raise HTTPException(status_code=404, detail="Current user not found")
+    
+    if not PermissionChecker.has_permission(str(current_user.role), Permission.CREATE_DEPARTMENTS):
+        raise HTTPException(status_code=403, detail="Insufficient permissions to create departments")
+    
+    try:
+        created_departments = []
+        for dept_data in departments_data:
+            # Check if department name/code already exists
+            existing = db.query(Department).filter(
+                (Department.name == dept_data.name) | (Department.code == dept_data.code)
+            ).first()
+            
+            if existing:
+                continue  # Skip existing departments
+            
+            new_dept = Department(**dept_data.dict())
+            db.add(new_dept)
+            created_departments.append(new_dept)
+        
+        db.commit()
+        
+        # Refresh all departments to get their IDs
+        for dept in created_departments:
+            db.refresh(dept)
+        
+        return {
+            "message": f"Successfully created {len(created_departments)} departments",
+            "created_departments": [DepartmentResponse(
+                id=dept.id,
+                name=dept.name,
+                code=dept.code,
+                description=dept.description,
+                hod_id=dept.hod_id,
+                duration_years=dept.duration_years,
+                academic_year=dept.academic_year,
+                semester_count=dept.semester_count,
+                current_semester=dept.current_semester,
+                is_active=dept.is_active,
+                created_at=dept.created_at,
+                updated_at=dept.updated_at,
+                hod_name=None
+            ) for dept in created_departments]
+        }
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error creating departments: {str(e)}")
+
+@app.post("/departments/bulk-update")
+async def bulk_update_departments(
+    updates: List[dict],  # List of {id: int, data: DepartmentUpdate}
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(RoleChecker(["admin"]))
+):
+    """Bulk update departments - Admin only"""
+    current_user = db.query(User).filter(User.id == current_user_id).first()
+    if not current_user:
+        raise HTTPException(status_code=404, detail="Current user not found")
+    
+    if not PermissionChecker.has_permission(str(current_user.role), Permission.UPDATE_DEPARTMENTS):
+        raise HTTPException(status_code=403, detail="Insufficient permissions to update departments")
+    
+    try:
+        updated_departments = []
+        for update in updates:
+            dept_id = update.get("id")
+            dept_data = update.get("data", {})
+            
+            if not dept_id:
+                continue
+            
+            department = db.query(Department).filter(Department.id == dept_id).first()
+            if not department:
+                continue
+            
+            # Update department
+            for field, value in dept_data.items():
+                if hasattr(department, field):
+                    setattr(department, field, value)
+            
+            updated_departments.append(department)
+        
+        db.commit()
+        
+        return {
+            "message": f"Successfully updated {len(updated_departments)} departments",
+            "updated_count": len(updated_departments)
+        }
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error updating departments: {str(e)}")
+
+@app.post("/departments/bulk-delete")
+async def bulk_delete_departments(
+    department_ids: List[int],
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(RoleChecker(["admin"]))
+):
+    """Bulk delete departments - Admin only"""
+    current_user = db.query(User).filter(User.id == current_user_id).first()
+    if not current_user:
+        raise HTTPException(status_code=404, detail="Current user not found")
+    
+    if not PermissionChecker.has_permission(str(current_user.role), Permission.DELETE_DEPARTMENTS):
+        raise HTTPException(status_code=403, detail="Insufficient permissions to delete departments")
+    
+    try:
+        deleted_count = 0
+        for dept_id in department_ids:
+            department = db.query(Department).filter(Department.id == dept_id).first()
+            if not department:
+                continue
+            
+            # Check if department has users
+            user_count = db.query(User).filter(User.department_id == dept_id).count()
+            if user_count > 0:
+                continue  # Skip departments with users
+            
+            db.delete(department)
+            deleted_count += 1
+        
+        db.commit()
+        
+        return {
+            "message": f"Successfully deleted {deleted_count} departments",
+            "deleted_count": deleted_count
+        }
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error deleting departments: {str(e)}")
 
 @app.get("/departments/{department_id}", response_model=DepartmentResponse)
 async def get_department(
@@ -1360,6 +1613,45 @@ async def delete_co_po_mapping(
     db.commit()
     
     return {"message": "CO-PO mapping deleted successfully"}
+
+# Get available HODs for department assignment
+@app.get("/available-hods")
+async def get_available_hods(
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(RoleChecker(["admin", "hod"]))
+):
+    """Get available HODs for department assignment"""
+    print(f"get_available_hods called with current_user_id: {current_user_id}")
+    current_user = db.query(User).filter(User.id == current_user_id).first()
+    if not current_user:
+        print(f"Current user not found for ID: {current_user_id}")
+        raise HTTPException(status_code=404, detail="Current user not found")
+    print(f"Current user found: {current_user.username}, role: {current_user.role}")
+    
+    # Get users with HOD role who don't have a department assigned yet
+    query = db.query(User).filter(
+        User.role == "hod",
+        User.is_active == True
+    )
+    
+    # If current user is HOD, only show themselves
+    if current_user.role == "hod":
+        query = query.filter(User.id == current_user_id)
+    
+    hods = query.all()
+    
+    result = []
+    for hod in hods:
+        result.append({
+            "id": hod.id,
+            "name": hod.full_name or f"{hod.first_name} {hod.last_name}".strip(),
+            "email": hod.email,
+            "username": hod.username,
+            "department_id": hod.department_id,
+            "has_department": hod.department_id is not None
+        })
+    
+    return result
 
 @app.get("/health")
 async def health_check():

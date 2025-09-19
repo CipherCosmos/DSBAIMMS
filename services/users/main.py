@@ -6,10 +6,133 @@ import json
 
 from shared.database import get_db
 from shared.models import User, Department, Class, Subject, TeacherSubject
-from shared.schemas import UserCreate, UserUpdate, UserResponse
+from shared.schemas import UserCreate, UserUpdate, UserResponse, AdminUserCreate, HODUserCreate, RoleBasedFieldConfig
 from shared.auth import RoleChecker
 
 app = FastAPI(title="User Service", version="1.0.0")
+
+# Role-based field configuration for dynamic UI
+ROLE_FIELD_CONFIG = {
+    "admin": {
+        "required_fields": ["username", "email", "password", "role"],
+        "optional_fields": ["first_name", "last_name", "phone", "address", "department_id", "class_id", "student_id", "employee_id", "date_of_birth", "gender", "qualification", "experience_years", "subject_ids", "specializations"],
+        "hidden_fields": [],
+        "field_labels": {
+            "username": "Username",
+            "email": "Email",
+            "password": "Password",
+            "role": "Role",
+            "first_name": "First Name",
+            "last_name": "Last Name",
+            "phone": "Phone",
+            "address": "Address",
+            "department_id": "Department",
+            "class_id": "Class",
+            "student_id": "Student ID",
+            "employee_id": "Employee ID",
+            "date_of_birth": "Date of Birth",
+            "gender": "Gender",
+            "qualification": "Qualification",
+            "experience_years": "Experience Years",
+            "subject_ids": "Subjects",
+            "specializations": "Specializations"
+        }
+    },
+    "hod": {
+        "required_fields": ["username", "email", "password", "role"],
+        "optional_fields": ["first_name", "last_name", "phone", "address", "class_id", "student_id", "employee_id", "date_of_birth", "gender", "qualification", "experience_years", "subject_ids", "specializations"],
+        "hidden_fields": ["department_id"],  # Auto-assigned to HOD's department
+        "field_labels": {
+            "username": "Username",
+            "email": "Email",
+            "password": "Password",
+            "role": "Role (Teacher/Student only)",
+            "first_name": "First Name",
+            "last_name": "Last Name",
+            "phone": "Phone",
+            "address": "Address",
+            "class_id": "Class",
+            "student_id": "Student ID",
+            "employee_id": "Employee ID",
+            "date_of_birth": "Date of Birth",
+            "gender": "Gender",
+            "qualification": "Qualification",
+            "experience_years": "Experience Years",
+            "subject_ids": "Subjects",
+            "specializations": "Specializations"
+        }
+    },
+    "teacher": {
+        "required_fields": ["username", "email", "password", "role"],
+        "optional_fields": ["first_name", "last_name", "phone", "address", "department_id", "class_id", "student_id", "employee_id", "date_of_birth", "gender", "qualification", "experience_years", "subject_ids", "specializations"],
+        "hidden_fields": [],
+        "field_labels": {
+            "username": "Username",
+            "email": "Email",
+            "password": "Password",
+            "role": "Role",
+            "first_name": "First Name",
+            "last_name": "Last Name",
+            "phone": "Phone",
+            "address": "Address",
+            "department_id": "Department",
+            "class_id": "Class",
+            "student_id": "Student ID",
+            "employee_id": "Employee ID",
+            "date_of_birth": "Date of Birth",
+            "gender": "Gender",
+            "qualification": "Qualification",
+            "experience_years": "Experience Years",
+            "subject_ids": "Subjects",
+            "specializations": "Specializations"
+        }
+    },
+    "student": {
+        "required_fields": ["username", "email", "password", "role"],
+        "optional_fields": ["first_name", "last_name", "phone", "address", "department_id", "class_id", "student_id", "date_of_birth", "gender", "specializations"],
+        "hidden_fields": ["employee_id", "qualification", "experience_years", "subject_ids"],
+        "field_labels": {
+            "username": "Username",
+            "email": "Email",
+            "password": "Password",
+            "role": "Role",
+            "first_name": "First Name",
+            "last_name": "Last Name",
+            "phone": "Phone",
+            "address": "Address",
+            "department_id": "Department",
+            "class_id": "Class",
+            "student_id": "Student ID",
+            "date_of_birth": "Date of Birth",
+            "gender": "Gender",
+            "specializations": "Specializations"
+        }
+    }
+}
+
+def get_role_field_config(role: str) -> dict:
+    """Get field configuration for a specific role"""
+    return ROLE_FIELD_CONFIG.get(role, ROLE_FIELD_CONFIG["student"])
+
+def validate_user_creation_permissions(current_user_role: str, target_role: str) -> bool:
+    """Validate if current user can create target role"""
+    if current_user_role == "admin":
+        return True  # Admin can create anyone
+    elif current_user_role == "hod":
+        return target_role in ["teacher", "student"]  # HOD can only create teachers and students
+    elif current_user_role == "teacher":
+        return False  # Teachers cannot create users
+    else:
+        return False  # Students cannot create users
+
+def validate_department_access(current_user: User, target_department_id: int) -> bool:
+    """Validate if current user can access target department"""
+    if current_user.role == "admin":
+        return True  # Admin can access all departments
+    elif current_user.role == "hod":
+        return current_user.department_id == target_department_id  # HOD can only access their department
+    else:
+        return False  # Others cannot access departments
 
 def validate_role_based_fields(role: str, user_data: dict) -> dict:
     """Validate and clean fields based on user role"""
@@ -174,7 +297,7 @@ def format_user_response(user: User, db: Session) -> dict:
 async def root():
     return {"message": "User Service is running"}
 
-@app.get("/users")
+@app.get("/api/users")
 async def get_users(
     skip: int = 0,
     limit: int = 100,
@@ -184,13 +307,31 @@ async def get_users(
     db: Session = Depends(get_db),
     current_user_id: int = Depends(RoleChecker(["admin", "hod", "teacher"]))
 ):
-    """Get all users with optional filtering"""
+    """Get users with role-based filtering"""
+    current_user = db.query(User).filter(User.id == current_user_id).first()
+    if not current_user:
+        raise HTTPException(status_code=404, detail="Current user not found")
+    
     query = db.query(User)
     
+    # Apply role-based filters
+    if current_user.role == "hod":
+        # HOD can only see users in their department
+        query = query.filter(User.department_id == current_user.department_id)
+    elif current_user.role == "teacher":
+        # Teachers can only see students (read-only access)
+        query = query.filter(User.role == "student")
+    
+    # Apply additional filters
     if department_id:
-        query = query.filter(User.department_id == department_id)
+        if current_user.role == "admin" or (current_user.role == "hod" and department_id == current_user.department_id):
+            query = query.filter(User.department_id == department_id)
+        else:
+            raise HTTPException(status_code=403, detail="You cannot access this department")
+    
     if role:
         query = query.filter(User.role == role)
+    
     if search:
         query = query.filter(
             (User.full_name.ilike(f"%{search}%")) |
@@ -206,7 +347,54 @@ async def get_users(
     
     return result
 
-@app.get("/users/{user_id}")
+@app.get("/api/users/available-roles")
+async def get_available_roles(
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(RoleChecker(["admin", "hod"]))
+):
+    """Get available roles that current user can create"""
+    current_user = db.query(User).filter(User.id == current_user_id).first()
+    if not current_user:
+        raise HTTPException(status_code=404, detail="Current user not found")
+    
+    available_roles = []
+    for role in ["admin", "hod", "teacher", "student"]:
+        if validate_user_creation_permissions(current_user.role, role):
+            available_roles.append({
+                "value": role,
+                "label": role.title(),
+                "description": f"Create {role} user"
+            })
+    
+    return available_roles
+
+@app.get("/api/users/field-config/{role}")
+async def get_field_config(
+    role: str,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(RoleChecker(["admin", "hod"]))
+):
+    """Get field configuration for a specific role"""
+    current_user = db.query(User).filter(User.id == current_user_id).first()
+    if not current_user:
+        raise HTTPException(status_code=404, detail="Current user not found")
+    
+    # Validate if current user can create this role
+    if not validate_user_creation_permissions(current_user.role, role):
+        raise HTTPException(status_code=403, detail=f"You cannot create users with role '{role}'")
+    
+    config = get_role_field_config(role)
+    return RoleBasedFieldConfig(
+        role=role,
+        required_fields=config["required_fields"],
+        optional_fields=config["optional_fields"],
+        hidden_fields=config["hidden_fields"],
+        field_labels=config["field_labels"],
+        field_placeholders={},
+        field_validation={}
+    )
+
+@app.get("/api/users/{user_id}")
 async def get_user(
     user_id: int,
     db: Session = Depends(get_db),
@@ -224,20 +412,36 @@ async def get_user_stats(
     db: Session = Depends(get_db),
     current_user_id: int = Depends(RoleChecker(["admin", "hod"]))
 ):
-    """Get user statistics"""
+    """Get user statistics with role-based filtering"""
+    current_user = db.query(User).filter(User.id == current_user_id).first()
+    if not current_user:
+        raise HTTPException(status_code=404, detail="Current user not found")
+    
     try:
-        total_users = db.query(User).count()
-        active_users = db.query(User).filter(User.is_active == True).count()
+        # Base query with role-based filtering
+        query = db.query(User)
+        
+        # Apply role-based filters
+        if current_user.role == "hod":
+            # HOD can only see users in their department
+            query = query.filter(User.department_id == current_user.department_id)
+        elif current_user.role == "teacher":
+            # Teachers can only see students
+            query = query.filter(User.role == "student")
+        
+        total_users = query.count()
+        active_users = query.filter(User.is_active == True).count()
         inactive_users = total_users - active_users
         
-        # Get role counts for all users (active and inactive)
+        # Get role counts for filtered users
         role_counts = {}
         for role in ["admin", "hod", "teacher", "student"]:
-            count = db.query(User).filter(User.role == role).count()
+            role_query = query.filter(User.role == role)
+            count = role_query.count()
             role_counts[role] = count
         
-        # Count distinct roles that actually exist in the database
-        distinct_roles = db.query(User.role).distinct().all()
+        # Count distinct roles that actually exist in the filtered results
+        distinct_roles = query.distinct(User.role).all()
         unique_roles_count = len(distinct_roles)
         
         return {
@@ -256,7 +460,8 @@ async def get_user_stats(
             "byRole": {"admin": 0, "hod": 0, "teacher": 0, "student": 0}
         }
 
-@app.post("/users", response_model=UserResponse)
+
+@app.post("/api/users", response_model=UserResponse)
 async def create_user(
     user_data: UserCreate,
     db: Session = Depends(get_db),
@@ -271,9 +476,21 @@ async def create_user(
     if not current_user:
         raise HTTPException(status_code=404, detail="Current user not found")
     
-    # Check if user has permission to create users
-    if not PermissionChecker.has_permission(current_user.role, Permission.CREATE_USERS):
-        raise HTTPException(status_code=403, detail="Insufficient permissions to create users")
+    # Validate creation permissions
+    if not validate_user_creation_permissions(current_user.role, user_data.role):
+        raise HTTPException(status_code=403, detail=f"You cannot create users with role '{user_data.role}'")
+    
+    # Auto-assign department for HOD-created users
+    if current_user.role == "hod":
+        user_data.department_id = current_user.department_id
+    
+    # For admin-created students, ensure they have a department
+    if current_user.role == "admin" and user_data.role == "student" and not user_data.department_id:
+        raise HTTPException(status_code=400, detail="Students must be assigned to a department")
+    
+    # Validate department access
+    if user_data.department_id and not validate_department_access(current_user, user_data.department_id):
+        raise HTTPException(status_code=403, detail="You cannot assign users to this department")
     
     # Check if username or email already exists
     existing_user = db.query(User).filter(
@@ -355,9 +572,33 @@ async def create_user(
     db.commit()
     db.refresh(user)
     
+    # Handle HOD-department relationship
+    if user_data.role == "hod":
+        from shared.models import Department
+        if department_id:
+            # Check if department already has a HOD
+            department = db.query(Department).filter(Department.id == department_id).first()
+            if department:
+                if department.hod_id and department.hod_id != user.id:
+                    # Department already has a different HOD
+                    existing_hod = db.query(User).filter(User.id == department.hod_id).first()
+                    if existing_hod:
+                        raise HTTPException(
+                            status_code=400, 
+                            detail=f"Department '{department.name}' already has HOD '{existing_hod.full_name or existing_hod.username}'. Please reassign the existing HOD first."
+                        )
+                
+                # Remove HOD from any other department first
+                db.query(Department).filter(Department.hod_id == user.id).update({"hod_id": None})
+                # Assign HOD to the department
+                department.hod_id = user.id
+                db.commit()
+        # If no department_id provided, HOD is created without department assignment
+        # This allows HODs to be created first and assigned to departments later
+    
     return format_user_response(user, db)
 
-@app.put("/users/{user_id}", response_model=UserResponse)
+@app.put("/api/users/{user_id}", response_model=UserResponse)
 async def update_user(
     user_id: int,
     user_data: UserUpdate,
@@ -455,12 +696,42 @@ async def update_user(
         if hasattr(user, field):
             setattr(user, field, value)
     
+    # Handle HOD-department relationship
+    if new_role == "hod" and "department_id" in cleaned_data:
+        department_id = cleaned_data["department_id"]
+        if department_id:
+            # Check if department already has a HOD
+            from shared.models import Department
+            department = db.query(Department).filter(Department.id == department_id).first()
+            if department:
+                if department.hod_id and department.hod_id != user.id:
+                    # Department already has a different HOD
+                    existing_hod = db.query(User).filter(User.id == department.hod_id).first()
+                    if existing_hod:
+                        raise HTTPException(
+                            status_code=400, 
+                            detail=f"Department '{department.name}' already has HOD '{existing_hod.full_name or existing_hod.username}'. Please reassign the existing HOD first."
+                        )
+                
+                # Remove HOD from any other department first
+                db.query(Department).filter(Department.hod_id == user.id).update({"hod_id": None})
+                # Assign HOD to the new department
+                department.hod_id = user.id
+        else:
+            # Remove HOD from current department (HOD without department)
+            from shared.models import Department
+            db.query(Department).filter(Department.hod_id == user.id).update({"hod_id": None})
+    elif user.role == "hod" and new_role != "hod":
+        # User is no longer HOD, remove from department
+        from shared.models import Department
+        db.query(Department).filter(Department.hod_id == user.id).update({"hod_id": None})
+    
     db.commit()
     db.refresh(user)
     
     return format_user_response(user, db)
 
-@app.delete("/users/{user_id}")
+@app.delete("/api/users/{user_id}")
 async def delete_user(
     user_id: int,
     db: Session = Depends(get_db),
@@ -533,7 +804,7 @@ async def delete_user(
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Error deleting user: {str(e)}")
 
-@app.post("/users/{user_id}/reset-password")
+@app.post("/api/users/{user_id}/reset-password")
 async def reset_user_password(
     user_id: int,
     db: Session = Depends(get_db),
