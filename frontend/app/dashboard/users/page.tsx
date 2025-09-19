@@ -181,7 +181,29 @@ export default function UsersPage() {
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault()
     try {
-      await apiClient.createUser(formData)
+      // Convert form data to proper types before sending
+      const createData = {
+        username: formData.username,
+        email: formData.email,
+        password: formData.password,
+        first_name: formData.first_name || null,
+        last_name: formData.last_name || null,
+        role: formData.role,
+        department_id: formData.department_id ? parseInt(formData.department_id) : null,
+        class_id: formData.class_id ? parseInt(formData.class_id) : null,
+        student_id: formData.student_id || null,
+        employee_id: formData.employee_id || null,
+        phone: formData.phone || null,
+        address: formData.address || null,
+        date_of_birth: formData.date_of_birth || null,
+        gender: formData.gender || null,
+        qualification: formData.qualification || null,
+        experience_years: formData.experience_years ? parseInt(formData.experience_years) : null,
+        subjects: formData.subjects,
+        specializations: formData.specializations
+      }
+
+      await apiClient.createUser(createData)
       toast.success('User created successfully')
       setShowCreateForm(false)
       setFormData({
@@ -598,7 +620,7 @@ export default function UsersPage() {
               </div>
               <div className="ml-4">
                 <p className="text-sm font-medium text-gray-600">Roles</p>
-                <p className="text-2xl font-bold text-gray-900">{Object.keys(stats.byRole).length}</p>
+                <p className="text-2xl font-bold text-gray-900">{stats.roles || 0}</p>
               </div>
             </div>
           </CardContent>

@@ -15,6 +15,21 @@ def validate_role_based_fields(role: str, user_data: dict) -> dict:
     """Validate and clean fields based on user role"""
     cleaned_data = user_data.copy()
     
+    # Helper function to convert empty strings to None for optional integer fields
+    def clean_int_field(field_name):
+        value = cleaned_data.get(field_name)
+        if value == "" or value is None:
+            cleaned_data[field_name] = None
+        else:
+            try:
+                cleaned_data[field_name] = int(value) if value else None
+            except (ValueError, TypeError):
+                cleaned_data[field_name] = None
+    
+    # Clean all optional integer fields first
+    for field in ["department_id", "class_id", "experience_years"]:
+        clean_int_field(field)
+    
     if role == "student":
         # Students should only have student_id, not employee_id
         cleaned_data["employee_id"] = None
@@ -215,17 +230,21 @@ async def get_user_stats(
         active_users = db.query(User).filter(User.is_active == True).count()
         inactive_users = total_users - active_users
         
-        # Get role counts
+        # Get role counts for all users (active and inactive)
         role_counts = {}
         for role in ["admin", "hod", "teacher", "student"]:
-            count = db.query(User).filter(User.role == role, User.is_active == True).count()
+            count = db.query(User).filter(User.role == role).count()
             role_counts[role] = count
+        
+        # Count distinct roles that actually exist in the database
+        distinct_roles = db.query(User.role).distinct().all()
+        unique_roles_count = len(distinct_roles)
         
         return {
             "total": total_users,
             "active": active_users,
             "inactive": inactive_users,
-            "roles": len([r for r in role_counts.values() if r > 0]),
+            "roles": unique_roles_count,
             "byRole": role_counts
         }
     except Exception as e:
@@ -555,135 +574,6 @@ async def reset_user_password(
     db.commit()
     
     return {"message": "Password reset successfully", "new_password": new_password}
-
-class BulkDeleteRequest(BaseModel):
-    user_ids: List[int]
-
-class BulkUpdateRequest(BaseModel):
-    user_ids: List[int]
-    update_data: dict
-
-@app.post("/users/bulk-update")
-async def bulk_update_users(
-    request: BulkUpdateRequest,
-    db: Session = Depends(get_db),
-    current_user_id: int = Depends(RoleChecker(["admin", "hod"]))
-):
-    """Bulk update users"""
-    from shared.permissions import PermissionChecker, Permission
-    
-    # Check permissions
-    current_user = db.query(User).filter(User.id == current_user_id).first()
-    if not current_user:
-        raise HTTPException(status_code=404, detail="Current user not found")
-    
-    if not PermissionChecker.has_permission(current_user.role, Permission.UPDATE_USERS):
-        raise HTTPException(status_code=403, detail="Insufficient permissions to update users")
-    
-    # Get users to update
-    query = db.query(User).filter(User.id.in_(request.user_ids))
-    
-    # Apply department restrictions for HOD
-    if current_user.role == "hod":
-        query = query.filter(User.department_id == current_user.department_id)
-    
-    users = query.all()
-    
-    if not users:
-        raise HTTPException(status_code=404, detail="No users found to update")
-    
-    # Update users
-    updated_count = 0
-    for user in users:
-        for field, value in request.update_data.items():
-            if hasattr(user, field):
-                setattr(user, field, value)
-        updated_count += 1
-    
-    db.commit()
-    
-    return {"message": f"Successfully updated {updated_count} users"}
-
-@app.post("/users/bulk-delete")
-async def bulk_delete_users(
-    request: BulkDeleteRequest,
-    db: Session = Depends(get_db),
-    current_user_id: int = Depends(RoleChecker(["admin", "hod"]))
-):
-    """Bulk delete users"""
-    from shared.permissions import PermissionChecker, Permission
-    from shared.models import AuditLog
-    
-    # Check permissions
-    current_user = db.query(User).filter(User.id == current_user_id).first()
-    if not current_user:
-        raise HTTPException(status_code=404, detail="Current user not found")
-    
-    if not PermissionChecker.has_permission(current_user.role, Permission.DELETE_USERS):
-        raise HTTPException(status_code=403, detail="Insufficient permissions to delete users")
-    
-    # Remove current user from deletion list
-    user_ids = [uid for uid in request.user_ids if uid != current_user_id]
-    
-    # Get users to delete
-    query = db.query(User).filter(User.id.in_(user_ids))
-    
-    # Apply department restrictions for HOD
-    if current_user.role == "hod":
-        query = query.filter(User.department_id == current_user.department_id)
-    
-    users = query.all()
-    
-    if not users:
-        raise HTTPException(status_code=404, detail="No users found to delete")
-    
-    try:
-        # Handle foreign key constraints by setting referencing fields to NULL
-        from shared.models import Department, Class, TeacherSubject, Mark, QuestionBank, QuestionBankItem, FileUpload, Notification, AuditLog
-        
-        # Get all user IDs to be deleted
-        user_ids = [user.id for user in users]
-        
-        # Set user_id to NULL in audit logs
-        db.query(AuditLog).filter(AuditLog.user_id.in_(user_ids)).update({"user_id": None})
-        
-        # Set hod_id to NULL in departments
-        db.query(Department).filter(Department.hod_id.in_(user_ids)).update({"hod_id": None})
-        
-        # Set class_teacher_id and cr_id to NULL in classes
-        db.query(Class).filter(Class.class_teacher_id.in_(user_ids)).update({"class_teacher_id": None})
-        db.query(Class).filter(Class.cr_id.in_(user_ids)).update({"cr_id": None})
-        
-        # Set teacher_id to NULL in teacher subjects (this has CASCADE, but let's be explicit)
-        db.query(TeacherSubject).filter(TeacherSubject.teacher_id.in_(user_ids)).delete()
-        
-        # Set graded_by to NULL in marks
-        db.query(Mark).filter(Mark.graded_by.in_(user_ids)).update({"graded_by": None})
-        
-        # Set created_by to NULL in question banks
-        db.query(QuestionBank).filter(QuestionBank.created_by.in_(user_ids)).update({"created_by": None})
-        
-        # Set added_by to NULL in question bank items
-        db.query(QuestionBankItem).filter(QuestionBankItem.added_by.in_(user_ids)).update({"added_by": None})
-        
-        # Set uploaded_by to NULL in file uploads
-        db.query(FileUpload).filter(FileUpload.uploaded_by.in_(user_ids)).update({"uploaded_by": None})
-        
-        # Set user_id to NULL in notifications
-        db.query(Notification).filter(Notification.user_id.in_(user_ids)).update({"user_id": None})
-        
-        # Then delete users
-        deleted_count = 0
-        for user in users:
-            db.delete(user)
-            deleted_count += 1
-        
-        db.commit()
-        
-        return {"message": f"Successfully deleted {deleted_count} users"}
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=f"Error deleting users: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn

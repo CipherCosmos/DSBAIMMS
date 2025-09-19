@@ -175,6 +175,23 @@ services:
   - name: bulk-service
     url: http://bulk-service:8016
     routes:
+      - name: bulk-users
+        paths:
+          - /api/users/bulk-create
+          - /api/users/bulk-update
+          - /api/users/bulk-delete
+        strip_path: false
+        path_handling: v0
+      - name: bulk-upload
+        paths:
+          - /api/bulk/upload
+        strip_path: true
+        path_handling: v0
+      - name: bulk-templates
+        paths:
+          - /api/bulk/template
+        strip_path: false
+        path_handling: v0
       - name: bulk
         paths:
           - /api/bulk

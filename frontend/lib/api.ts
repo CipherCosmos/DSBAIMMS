@@ -91,7 +91,7 @@ class ApiClient {
   }
 
   async bulkUpdateUsers(userIds: number[], updateData: any) {
-    return this.client.post('/api/users/bulk-update', { user_ids: userIds, ...updateData })
+    return this.client.post('/api/users/bulk-update', { user_ids: userIds, update_data: updateData })
   }
 
   async bulkDeleteUsers(userIds: number[]) {
@@ -510,110 +510,110 @@ class ApiClient {
 
   // ==================== BULK OPERATIONS SERVICE ====================
   async bulkCreateUsers(formData: FormData) {
-    return this.client.post('/api/bulk/users/upload', formData, {
+    return this.client.post('/api/bulk/upload/users', formData, {
       headers: { 'Content-Type': 'multipart/form-data' }
     })
   }
 
   async validateUsersUpload(formData: FormData) {
-    return this.client.post('/api/bulk/users/validate', formData, {
+    return this.client.post('/api/bulk/upload/users/validate', formData, {
       headers: { 'Content-Type': 'multipart/form-data' }
     })
   }
 
   async bulkCreateQuestions(formData: FormData) {
-    return this.client.post('/api/bulk/questions/upload', formData, {
+    return this.client.post('/api/bulk/upload/questions', formData, {
       headers: { 'Content-Type': 'multipart/form-data' }
     })
   }
 
   async validateQuestionsUpload(formData: FormData) {
-    return this.client.post('/api/bulk/questions/validate', formData, {
+    return this.client.post('/api/bulk/upload/questions/validate', formData, {
       headers: { 'Content-Type': 'multipart/form-data' }
     })
   }
 
   async bulkCreateClasses(formData: FormData) {
-    return this.client.post('/api/bulk/classes/upload', formData, {
+    return this.client.post('/api/bulk/upload/classes', formData, {
       headers: { 'Content-Type': 'multipart/form-data' }
     })
   }
 
   async validateClassesUpload(formData: FormData) {
-    return this.client.post('/api/bulk/classes/validate', formData, {
+    return this.client.post('/api/bulk/upload/classes/validate', formData, {
       headers: { 'Content-Type': 'multipart/form-data' }
     })
   }
 
   async bulkCreateSubjects(formData: FormData) {
-    return this.client.post('/api/bulk/subjects/upload', formData, {
+    return this.client.post('/api/bulk/upload/subjects', formData, {
       headers: { 'Content-Type': 'multipart/form-data' }
     })
   }
 
   async validateSubjectsUpload(formData: FormData) {
-    return this.client.post('/api/bulk/subjects/validate', formData, {
+    return this.client.post('/api/bulk/upload/subjects/validate', formData, {
       headers: { 'Content-Type': 'multipart/form-data' }
     })
   }
 
   async bulkCreateCOPOMappings(formData: FormData) {
-    return this.client.post('/api/bulk/co-po-mappings/upload', formData, {
+    return this.client.post('/api/bulk/upload/co-po-mappings', formData, {
       headers: { 'Content-Type': 'multipart/form-data' }
     })
   }
 
   async validateCOPOMappingsUpload(formData: FormData) {
-    return this.client.post('/api/bulk/co-po-mappings/validate', formData, {
+    return this.client.post('/api/bulk/upload/co-po-mappings/validate', formData, {
       headers: { 'Content-Type': 'multipart/form-data' }
     })
   }
 
   async bulkCreateMarks(formData: FormData) {
-    return this.client.post('/api/bulk/marks/upload', formData, {
+    return this.client.post('/api/bulk/upload/marks', formData, {
       headers: { 'Content-Type': 'multipart/form-data' }
     })
   }
 
   async validateMarksUpload(formData: FormData) {
-    return this.client.post('/api/bulk/marks/validate', formData, {
+    return this.client.post('/api/bulk/upload/marks/validate', formData, {
       headers: { 'Content-Type': 'multipart/form-data' }
     })
   }
 
   // Template downloads
   async downloadUsersTemplate() {
-    return this.client.get('/api/bulk/templates/users', {
+    return this.client.get('/api/bulk/template/users', {
       responseType: 'blob'
     })
   }
 
   async downloadQuestionsTemplate() {
-    return this.client.get('/api/bulk/templates/questions', {
+    return this.client.get('/api/bulk/template/questions', {
       responseType: 'blob'
     })
   }
 
   async downloadClassesTemplate() {
-    return this.client.get('/api/bulk/templates/classes', {
+    return this.client.get('/api/bulk/template/classes', {
       responseType: 'blob'
     })
   }
 
   async downloadSubjectsTemplate() {
-    return this.client.get('/api/bulk/templates/subjects', {
+    return this.client.get('/api/bulk/template/subjects', {
       responseType: 'blob'
     })
   }
 
   async downloadCOPOMappingsTemplate() {
-    return this.client.get('/api/bulk/templates/co-po-mappings', {
+    return this.client.get('/api/bulk/template/co-po-mappings', {
       responseType: 'blob'
     })
   }
 
   async downloadMarksTemplate(examId: number) {
-    return this.client.get(`/api/bulk/templates/marks?exam_id=${examId}`, {
+    return this.client.get(`/api/bulk/template/marks?exam_id=${examId}`, {
       responseType: 'blob'
     })
   }
