@@ -1,4 +1,15 @@
-node_modules
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+bun.lockb
+
+# Environment
 .env
 .env.local
 .env.development.local
@@ -8,4 +19,64 @@ node_modules
 .env.test
 .env.production
 
+# Python
 *.pyc
+__pycache__/
+*.pack
+*.pyo
+*.pyd
+*.pdb
+*.egg
+*.egg-info/
+.eggs/
+dist/
+build/
+*.manifest
+*.spec
+
+# Next.js / React / Frontend
+.next/
+out/
+.cache/
+.cursor/
+coverage/
+*.tsbuildinfo
+
+# Logs
+*.log
+logs/
+*.pid
+*.seed
+*.pid.lock
+
+# IDEs / Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*.swn
+*.bak
+*.tmp
+*.DS_Store
+Thumbs.db
+
+# Testing / Coverage
+coverage/
+.nyc_output/
+
+# Package managers (misc)
+bower_components/
+jspm_packages/
+
+# Docker
+.docker/
+*.pid
+
+# Misc
+*.tgz
+*.gz
+*.zip
+*.tar
+*.patch
+*.orig
+*.rej

@@ -230,6 +230,11 @@ class ExamSection(Base):
     total_marks = Column(Integer, nullable=False)
     total_questions = Column(Integer)
     questions_to_attempt = Column(Integer)
+    section_type = Column(String(20), default="standard")
+    optional_questions = Column(Integer, default=0)
+    mandatory_questions = Column(Integer, default=0)
+    question_marks = Column(Decimal(5, 2), default=0.0)
+    is_optional_section = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), server_default = func.now())
     
     # Relationships
@@ -253,6 +258,9 @@ class Question(Base):
     is_sub_question = Column(Boolean, default=False)
     sub_question_text = Column(Text)
     sub_question_marks = Column(Decimal(5, 2))
+    co_weight = Column(Decimal(3, 2), default=1.0)
+    po_auto_mapped = Column(Boolean, default=False)
+    created_by = Column(Integer, ForeignKey("users.id"))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate = func.now())
     
@@ -262,6 +270,7 @@ class Question(Base):
     parent_question = relationship("Question", remote_side=[id], backref="sub_questions")
     marks = relationship("Mark", foreign_keys="Mark.question_id", back_populates="question")
     question_bank_items = relationship("QuestionBankItem", foreign_keys="QuestionBankItem.question_id", back_populates="question")
+    creator = relationship("User", foreign_keys=[created_by])
 
 class Mark(Base):
     __tablename__ = "marks"
@@ -275,6 +284,13 @@ class Mark(Base):
     remarks = Column(Text)
     graded_by = Column(Integer, ForeignKey("users.id"))
     graded_at = Column(DateTime(timezone=True))
+    is_attempted = Column(Boolean, default=True)
+    attempt_number = Column(Integer, default=1)
+    is_best_attempt = Column(Boolean, default=False)
+    co_contribution = Column(Decimal(5, 2), default=0.0)
+    po_contribution = Column(Decimal(5, 2), default=0.0)
+    bloom_level = Column(String(20))
+    difficulty_level = Column(String(20))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate = func.now())
     
@@ -283,6 +299,54 @@ class Mark(Base):
     exam = relationship("Exam", foreign_keys=[exam_id], back_populates="marks")
     question = relationship("Question", foreign_keys=[question_id], back_populates="marks")
     grader = relationship("User", foreign_keys=[graded_by], back_populates="graded_marks")
+
+class QuestionAttempt(Base):
+    __tablename__ = "question_attempts"
+
+    id = Column(Integer, primary_key=True, index=True)
+    student_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    question_id = Column(Integer, ForeignKey("questions.id"), nullable=False)
+    exam_id = Column(Integer, ForeignKey("exams.id"), nullable=False)
+    attempt_number = Column(Integer, default=1)
+    marks_obtained = Column(Decimal(5, 2), default=0.0)
+    max_marks = Column(Decimal(5, 2), nullable=False)
+    is_best_attempt = Column(Boolean, default=False)
+    attempt_time = Column(DateTime(timezone=True), default=func.now())
+    graded_by = Column(Integer, ForeignKey("users.id"))
+    remarks = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    
+    # Relationships
+    student = relationship("User", foreign_keys=[student_id])
+    question = relationship("Question", foreign_keys=[question_id])
+    exam = relationship("Exam", foreign_keys=[exam_id])
+    grader = relationship("User", foreign_keys=[graded_by])
+
+class ExamAnalytics(Base):
+    __tablename__ = "exam_analytics"
+
+    id = Column(Integer, primary_key=True, index=True)
+    exam_id = Column(Integer, ForeignKey("exams.id"), nullable=False)
+    student_id = Column(Integer, ForeignKey("users.id"))
+    section_id = Column(Integer, ForeignKey("exam_sections.id"))
+    co_id = Column(Integer, ForeignKey("cos.id"))
+    po_id = Column(Integer, ForeignKey("pos.id"))
+    total_marks = Column(Decimal(5, 2), default=0.0)
+    obtained_marks = Column(Decimal(5, 2), default=0.0)
+    percentage = Column(Decimal(5, 2), default=0.0)
+    bloom_level = Column(String(20))
+    difficulty_level = Column(String(20))
+    co_attainment = Column(Decimal(5, 2), default=0.0)
+    po_attainment = Column(Decimal(5, 2), default=0.0)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    
+    # Relationships
+    exam = relationship("Exam", foreign_keys=[exam_id])
+    student = relationship("User", foreign_keys=[student_id])
+    section = relationship("ExamSection", foreign_keys=[section_id])
+    co = relationship("CO", foreign_keys=[co_id])
+    po = relationship("PO", foreign_keys=[po_id])
 
 class QuestionBank(Base):
     __tablename__ = "question_banks"

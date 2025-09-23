@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Search, BookOpen, Calendar, Clock, Users, BarChart3, Download, Eye, Filter } from 'lucide-react'
+import { Search, BookOpen, Calendar, Clock, Users, BarChart3, Download, Eye, Filter, Building } from 'lucide-react'
 import { toast } from 'react-hot-toast'
 
 interface Subject {

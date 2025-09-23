@@ -1,7 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  swcMinify: true,
   typescript: {
     ignoreBuildErrors: false,
   },
@@ -17,10 +16,6 @@ const nextConfig = {
       }
     }
     return config
-  },
-  // Enable experimental features for better development experience
-  experimental: {
-    esmExternals: false,
   },
 }
 

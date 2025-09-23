@@ -71,12 +71,42 @@ services:
       - name: classes
         paths:
           - /api/classes
-        strip_path: true
+        strip_path: false
         path_handling: v0
       - name: subjects
         paths:
           - /api/subjects
+        strip_path: false
+        path_handling: v0
+      - name: smart-cos
+        paths:
+          - /api/smart-cos
         strip_path: true
+        path_handling: v0
+      - name: smart-pos
+        paths:
+          - /api/smart-pos
+        strip_path: true
+        path_handling: v0
+      - name: bulk-cos
+        paths:
+          - /api/bulk-cos
+        strip_path: true
+        path_handling: v0
+      - name: bulk-pos
+        paths:
+          - /api/bulk-pos
+        strip_path: true
+        path_handling: v0
+      - name: co-po-analytics
+        paths:
+          - /api/co-po-analytics
+        strip_path: true
+        path_handling: v0
+      - name: co-po-recommendations
+        paths:
+          - /api/co-po-recommendations
+        strip_path: false
         path_handling: v0
       - name: cos
         paths:
@@ -117,9 +147,34 @@ services:
           - /api/exam-sections
         strip_path: true
         path_handling: v0
+      - name: exam-analytics
+        paths:
+          - /api/exams/*/analytics
+        strip_path: true
+        path_handling: v0
+      - name: exam-export
+        paths:
+          - /api/exams/*/export
+        strip_path: true
+        path_handling: v0
+      - name: smart-marks
+        paths:
+          - /api/exams/*/smart-marks
+        strip_path: true
+        path_handling: v0
+      - name: bulk-questions
+        paths:
+          - /api/exams/*/bulk-questions
+        strip_path: true
+        path_handling: v0
+      - name: bulk-marks
+        paths:
+          - /api/exams/*/bulk-marks
+        strip_path: true
+        path_handling: v0
 
   - name: marks-service
-    url: http://marks-service:8014/marks
+    url: http://marks-service:8014
     routes:
       - name: marks
         paths:
@@ -129,6 +184,26 @@ services:
       - name: marks-template
         paths:
           - /api/marks/*/template
+        strip_path: true
+        path_handling: v0
+      - name: smart-marks-calculation
+        paths:
+          - /api/marks/smart-calculation
+        strip_path: true
+        path_handling: v0
+      - name: marks-analytics
+        paths:
+          - /api/marks/analytics
+        strip_path: true
+        path_handling: v0
+      - name: marks-export
+        paths:
+          - /api/marks/export
+        strip_path: true
+        path_handling: v0
+      - name: marks-bulk
+        paths:
+          - /api/marks/bulk
         strip_path: true
         path_handling: v0
 

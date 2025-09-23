@@ -43,28 +43,6 @@ export default function MonitoringPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  // Check if user has permission to access monitoring
-  if (user && !['admin', 'hod'].includes(user.role)) {
-    return (
-      <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <h1 className="text-3xl font-bold">System Monitoring</h1>
-        </div>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="text-center text-red-600">
-              <XCircle className="h-12 w-12 mx-auto mb-4" />
-              <p className="text-lg font-medium">Access Denied</p>
-              <p className="text-sm text-gray-600 mt-2">
-                You don't have permission to access system monitoring. Only administrators and HODs can view this page.
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-    )
-  }
-
   const loadSystemHealth = async () => {
     try {
       setLoading(true)
@@ -80,12 +58,36 @@ export default function MonitoringPage() {
   }
 
   useEffect(() => {
-    loadSystemHealth()
-    
-    // Refresh every 30 seconds
-    const interval = setInterval(loadSystemHealth, 30000)
-    return () => clearInterval(interval)
-  }, [])
+    if (user && ['admin', 'hod'].includes(user.role)) {
+      loadSystemHealth()
+      
+      // Refresh every 30 seconds
+      const interval = setInterval(loadSystemHealth, 30000)
+      return () => clearInterval(interval)
+    }
+  }, [user])
+
+  // Check if user has permission to access monitoring
+  if (user && !['admin', 'hod'].includes(user.role)) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <h1 className="text-3xl font-bold">System Monitoring</h1>
+        </div>
+        <Card>
+          <CardContent className="pt-6">
+            <div className="text-center text-red-600">
+              <XCircle className="h-12 w-12 mx-auto mb-4" />
+              <p className="text-lg font-medium">Access Denied</p>
+              <p className="text-sm text-gray-600 mt-2">
+                You don&apos;t have permission to access system monitoring. Only administrators and HODs can view this page.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
 
   const getStatusIcon = (status: string) => {
     switch (status) {
@@ -260,22 +262,24 @@ export default function MonitoringPage() {
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
-            {systemHealth?.services?.map((service, index) => (
-              <div key={index} className="flex items-center justify-between p-4 border rounded-lg">
-                <div className="flex items-center space-x-3">
-                  {getStatusIcon(service.status)}
-                  <div>
-                    <p className="font-medium">{service.name}</p>
-                    <p className="text-sm text-gray-600">
-                      {service.responseTime ? `Response time: ${service.responseTime}ms` : 'No response time data'}
-                    </p>
+            {systemHealth?.services && Array.isArray(systemHealth.services) ? (
+              systemHealth.services.map((service, index) => (
+                <div key={index} className="flex items-center justify-between p-4 border rounded-lg">
+                  <div className="flex items-center space-x-3">
+                    {getStatusIcon(service.status)}
+                    <div>
+                      <p className="font-medium">{service.name}</p>
+                      <p className="text-sm text-gray-600">
+                        {service.responseTime ? `Response time: ${service.responseTime}ms` : 'No response time data'}
+                      </p>
+                    </div>
                   </div>
+                  <Badge className={getStatusColor(service.status)}>
+                    {service.status.toUpperCase()}
+                  </Badge>
                 </div>
-                <Badge className={getStatusColor(service.status)}>
-                  {service.status.toUpperCase()}
-                </Badge>
-              </div>
-            )) || (
+              ))
+            ) : (
               <div className="text-center text-gray-500 py-8">
                 No service data available
               </div>

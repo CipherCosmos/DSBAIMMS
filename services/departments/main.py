@@ -1,15 +1,59 @@
-from fastapi import FastAPI, Depends, HTTPException, Query
+from fastapi import FastAPI, Depends, HTTPException, Query, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session, joinedload
-from typing import List, Optional
+from sqlalchemy import func, and_, or_
+from typing import List, Optional, Dict, Any
 from pydantic import BaseModel
 from datetime import datetime
+import pandas as pd
+from io import BytesIO, StringIO
 
 from shared.database import get_db
-from shared.models import Department, User, AuditLog, Class, Subject, PO, CO, COPOMapping
+from shared.models import Department, User, AuditLog, Class, Subject, PO, CO, COPOMapping, Question, Mark
 from shared.auth import RoleChecker
 from shared.permissions import PermissionChecker, Permission
 from shared.schemas import DepartmentResponse, DepartmentCreate, DepartmentUpdate, ClassResponse, ClassCreate, ClassUpdate, SubjectResponse, SubjectCreate, SubjectUpdate, POResponse, POCreate, POUpdate, COResponse, COCreate, COUpdate, COPOMappingResponse, COPOMappingCreate, COPOMappingUpdate
+
+# Enhanced schemas for smart CO/PO management
+class SmartCOCreate(BaseModel):
+    name: str
+    description: str
+    subject_id: int
+    department_id: int
+    auto_generate_mappings: bool = True
+    suggested_pos: Optional[List[int]] = None
+
+class SmartPOCreate(BaseModel):
+    name: str
+    description: str
+    department_id: int
+    auto_generate_mappings: bool = True
+    suggested_cos: Optional[List[int]] = None
+
+class COPOAnalytics(BaseModel):
+    co_id: int
+    co_name: str
+    po_id: int
+    po_name: str
+    mapping_strength: float
+    attainment_percentage: float
+    student_count: int
+    average_score: float
+    bloom_distribution: Dict[str, int]
+    difficulty_distribution: Dict[str, int]
+
+class BulkCOCreate(BaseModel):
+    cos: List[SmartCOCreate]
+
+class BulkPOCreate(BaseModel):
+    pos: List[SmartPOCreate]
+
+class COPORecommendation(BaseModel):
+    co_id: int
+    po_id: int
+    confidence_score: float
+    reason: str
+    suggested_strength: int
 
 app = FastAPI(title="Department Service", version="1.0.0")
 
@@ -41,6 +85,178 @@ def log_audit(db: Session, user_id: int, action: str, table_name: str, details: 
     )
     db.add(audit_log)
     db.commit()
+
+# Smart CO/PO helper functions
+def generate_smart_co_mappings(co_id: int, department_id: int, db: Session) -> List[Dict[str, Any]]:
+    """Generate smart CO-PO mappings based on keywords and existing patterns"""
+    co = db.query(CO).filter(CO.id == co_id).first()
+    if not co:
+        return []
+    
+    # Get all POs in the department
+    pos = db.query(PO).filter(PO.department_id == department_id).all()
+    
+    mappings = []
+    co_keywords = extract_keywords(co.description.lower())
+    
+    for po in pos:
+        po_keywords = extract_keywords(po.description.lower())
+        similarity_score = calculate_keyword_similarity(co_keywords, po_keywords)
+        
+        if similarity_score > 0.3:  # Threshold for mapping
+            strength = 1 if similarity_score < 0.5 else 2 if similarity_score < 0.7 else 3
+            mappings.append({
+                "co_id": co_id,
+                "po_id": po.id,
+                "mapping_strength": strength,
+                "confidence": similarity_score
+            })
+    
+    return mappings
+
+def generate_smart_po_mappings(po_id: int, department_id: int, db: Session) -> List[Dict[str, Any]]:
+    """Generate smart PO-CO mappings based on keywords and existing patterns"""
+    po = db.query(PO).filter(PO.id == po_id).first()
+    if not po:
+        return []
+    
+    # Get all COs in the department
+    cos = db.query(CO).join(Subject).filter(Subject.department_id == department_id).all()
+    
+    mappings = []
+    po_keywords = extract_keywords(po.description.lower())
+    
+    for co in cos:
+        co_keywords = extract_keywords(co.description.lower())
+        similarity_score = calculate_keyword_similarity(po_keywords, co_keywords)
+        
+        if similarity_score > 0.3:  # Threshold for mapping
+            strength = 1 if similarity_score < 0.5 else 2 if similarity_score < 0.7 else 3
+            mappings.append({
+                "co_id": co.id,
+                "po_id": po_id,
+                "mapping_strength": strength,
+                "confidence": similarity_score
+            })
+    
+    return mappings
+
+def extract_keywords(text: str) -> List[str]:
+    """Extract meaningful keywords from text"""
+    # Simple keyword extraction - can be enhanced with NLP
+    import re
+    # Remove common stop words
+    stop_words = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'is', 'are', 'was', 'were', 'be', 'been', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could', 'should', 'may', 'might', 'can', 'must', 'shall'}
+    
+    # Extract words (alphanumeric only)
+    words = re.findall(r'\b\w+\b', text.lower())
+    
+    # Filter out stop words and short words
+    keywords = [word for word in words if len(word) > 2 and word not in stop_words]
+    
+    return keywords
+
+def calculate_keyword_similarity(keywords1: List[str], keywords2: List[str]) -> float:
+    """Calculate similarity between two keyword lists"""
+    if not keywords1 or not keywords2:
+        return 0.0
+    
+    set1 = set(keywords1)
+    set2 = set(keywords2)
+    
+    # Jaccard similarity
+    intersection = len(set1.intersection(set2))
+    union = len(set1.union(set2))
+    
+    return intersection / union if union > 0 else 0.0
+
+def calculate_co_po_analytics(co_id: int, po_id: int, db: Session) -> Dict[str, Any]:
+    """Calculate comprehensive analytics for CO-PO mapping"""
+    # Get questions mapped to this CO
+    questions = db.query(Question).filter(Question.co_id == co_id).all()
+    
+    if not questions:
+        return {
+            "attainment_percentage": 0.0,
+            "student_count": 0,
+            "average_score": 0.0,
+            "bloom_distribution": {},
+            "difficulty_distribution": {}
+        }
+    
+    # Calculate Bloom's distribution
+    bloom_dist = {}
+    difficulty_dist = {}
+    
+    for question in questions:
+        bloom_level = question.bloom_level or "unknown"
+        difficulty = question.difficulty_level or "unknown"
+        
+        bloom_dist[bloom_level] = bloom_dist.get(bloom_level, 0) + 1
+        difficulty_dist[difficulty] = difficulty_dist.get(difficulty, 0) + 1
+    
+    # Get marks for these questions
+    question_ids = [q.id for q in questions]
+    marks_query = db.query(Mark).filter(Mark.question_id.in_(question_ids))
+    
+    total_marks = marks_query.count()
+    if total_marks == 0:
+        return {
+            "attainment_percentage": 0.0,
+            "student_count": 0,
+            "average_score": 0.0,
+            "bloom_distribution": bloom_dist,
+            "difficulty_distribution": difficulty_dist
+        }
+    
+    # Calculate average score
+    avg_score = marks_query.with_entities(func.avg(Mark.marks_obtained / Mark.max_marks * 100)).scalar() or 0.0
+    
+    # Count unique students
+    student_count = marks_query.with_entities(func.count(func.distinct(Mark.student_id))).scalar() or 0
+    
+    return {
+        "attainment_percentage": float(avg_score),
+        "student_count": student_count,
+        "average_score": float(avg_score),
+        "bloom_distribution": bloom_dist,
+        "difficulty_distribution": difficulty_dist
+    }
+
+def get_co_po_recommendations(department_id: int, db: Session) -> List[COPORecommendation]:
+    """Get AI-powered recommendations for CO-PO mappings"""
+    recommendations = []
+    
+    # Get all COs and POs in the department
+    cos = db.query(CO).join(Subject).filter(Subject.department_id == department_id).all()
+    pos = db.query(PO).filter(PO.department_id == department_id).all()
+    
+    for co in cos:
+        for po in pos:
+            # Check if mapping already exists
+            existing = db.query(COPOMapping).filter(
+                and_(COPOMapping.co_id == co.id, COPOMapping.po_id == po.id)
+            ).first()
+            
+            if not existing:
+                # Calculate similarity
+                co_keywords = extract_keywords(co.description.lower())
+                po_keywords = extract_keywords(po.description.lower())
+                similarity = calculate_keyword_similarity(co_keywords, po_keywords)
+                
+                if similarity > 0.2:  # Lower threshold for recommendations
+                    strength = 1 if similarity < 0.4 else 2 if similarity < 0.6 else 3
+                    recommendations.append(COPORecommendation(
+                        co_id=co.id,
+                        po_id=po.id,
+                        confidence_score=similarity,
+                        reason=f"Keyword similarity: {similarity:.2f}",
+                        suggested_strength=strength
+                    ))
+    
+    # Sort by confidence score
+    recommendations.sort(key=lambda x: x.confidence_score, reverse=True)
+    return recommendations[:20]  # Return top 20 recommendations
 
 # Root endpoint
 @app.get("/")
@@ -548,7 +764,7 @@ async def get_department_stats(
 
 # ==================== CLASS ENDPOINTS ====================
 
-@app.get("/classes", response_model=List[ClassResponse])
+@app.get("/api/classes", response_model=List[ClassResponse])
 async def get_classes(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
@@ -662,7 +878,7 @@ async def create_class(
         updated_at=new_class.updated_at
     )
 
-@app.get("/classes/{class_id}", response_model=ClassResponse)
+@app.get("/api/classes/{class_id}", response_model=ClassResponse)
 async def get_class(
     class_id: int,
     db: Session = Depends(get_db),
@@ -781,7 +997,7 @@ async def delete_class(
 
 # ==================== SUBJECT ENDPOINTS ====================
 
-@app.get("/subjects", response_model=List[SubjectResponse])
+@app.get("/api/subjects", response_model=List[SubjectResponse])
 async def get_subjects(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
@@ -894,7 +1110,7 @@ async def create_subject(
         teacher_name=None  # Will be populated if needed
     )
 
-@app.get("/subjects/{subject_id}", response_model=SubjectResponse)
+@app.get("/api/subjects/{subject_id}", response_model=SubjectResponse)
 async def get_subject(
     subject_id: int,
     db: Session = Depends(get_db),
@@ -1652,6 +1868,293 @@ async def get_available_hods(
         })
     
     return result
+
+# ==================== SMART CO/PO MANAGEMENT ENDPOINTS ====================
+
+@app.post("/smart-cos", response_model=COResponse)
+async def create_smart_co(
+    co_data: SmartCOCreate,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(RoleChecker(["admin", "hod"]))
+):
+    """Create CO with smart mapping generation"""
+    current_user = db.query(User).filter(User.id == current_user_id).first()
+    
+    # Check if subject exists and user has permission
+    subject = db.query(Subject).filter(Subject.id == co_data.subject_id).first()
+    if not subject:
+        raise HTTPException(status_code=404, detail="Subject not found")
+    
+    # Apply role-based access control
+    if current_user.role == "hod" and subject.department_id != current_user.department_id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    # Create CO
+    new_co = CO(
+        name=co_data.name,
+        description=co_data.description,
+        subject_id=co_data.subject_id,
+        department_id=co_data.department_id
+    )
+    
+    db.add(new_co)
+    db.commit()
+    db.refresh(new_co)
+    
+    # Generate smart mappings if requested
+    if co_data.auto_generate_mappings:
+        mappings = generate_smart_co_mappings(new_co.id, co_data.department_id, db)
+        for mapping_data in mappings:
+            mapping = COPOMapping(
+                co_id=mapping_data["co_id"],
+                po_id=mapping_data["po_id"],
+                mapping_strength=mapping_data["mapping_strength"]
+            )
+            db.add(mapping)
+        db.commit()
+    
+    # Log the creation
+    log_audit(db, current_user_id, "create", "co", f"Created smart CO: {new_co.name}")
+    
+    return COResponse(
+        id=new_co.id,
+        name=new_co.name,
+        description=new_co.description,
+        subject_id=new_co.subject_id,
+        department_id=new_co.department_id,
+        created_at=new_co.created_at,
+        updated_at=new_co.updated_at
+    )
+
+@app.post("/smart-pos", response_model=POResponse)
+async def create_smart_po(
+    po_data: SmartPOCreate,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(RoleChecker(["admin", "hod"]))
+):
+    """Create PO with smart mapping generation"""
+    current_user = db.query(User).filter(User.id == current_user_id).first()
+    
+    # Apply role-based access control
+    if current_user.role == "hod" and po_data.department_id != current_user.department_id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    # Create PO
+    new_po = PO(
+        name=po_data.name,
+        description=po_data.description,
+        department_id=po_data.department_id
+    )
+    
+    db.add(new_po)
+    db.commit()
+    db.refresh(new_po)
+    
+    # Generate smart mappings if requested
+    if po_data.auto_generate_mappings:
+        mappings = generate_smart_po_mappings(new_po.id, po_data.department_id, db)
+        for mapping_data in mappings:
+            mapping = COPOMapping(
+                co_id=mapping_data["co_id"],
+                po_id=mapping_data["po_id"],
+                mapping_strength=mapping_data["mapping_strength"]
+            )
+            db.add(mapping)
+        db.commit()
+    
+    # Log the creation
+    log_audit(db, current_user_id, "create", "po", f"Created smart PO: {new_po.name}")
+    
+    return POResponse(
+        id=new_po.id,
+        name=new_po.name,
+        description=new_po.description,
+        department_id=new_po.department_id,
+        created_at=new_po.created_at,
+        updated_at=new_po.updated_at
+    )
+
+@app.post("/bulk-cos", response_model=List[COResponse])
+async def bulk_create_cos(
+    bulk_data: BulkCOCreate,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(RoleChecker(["admin", "hod"]))
+):
+    """Create multiple COs with smart mapping generation"""
+    current_user = db.query(User).filter(User.id == current_user_id).first()
+    created_cos = []
+    
+    for co_data in bulk_data.cos:
+        # Check permissions for each CO
+        subject = db.query(Subject).filter(Subject.id == co_data.subject_id).first()
+        if not subject:
+            continue
+        
+        if current_user.role == "hod" and subject.department_id != current_user.department_id:
+            continue
+        
+        try:
+            # Create CO
+            new_co = CO(
+                name=co_data.name,
+                description=co_data.description,
+                subject_id=co_data.subject_id,
+                department_id=co_data.department_id
+            )
+            
+            db.add(new_co)
+            db.commit()
+            db.refresh(new_co)
+            
+            # Generate smart mappings if requested
+            if co_data.auto_generate_mappings:
+                mappings = generate_smart_co_mappings(new_co.id, co_data.department_id, db)
+                for mapping_data in mappings:
+                    mapping = COPOMapping(
+                        co_id=mapping_data["co_id"],
+                        po_id=mapping_data["po_id"],
+                        mapping_strength=mapping_data["mapping_strength"]
+                    )
+                    db.add(mapping)
+                db.commit()
+            
+            created_cos.append(COResponse(
+                id=new_co.id,
+                name=new_co.name,
+                description=new_co.description,
+                subject_id=new_co.subject_id,
+                department_id=new_co.department_id,
+                created_at=new_co.created_at,
+                updated_at=new_co.updated_at
+            ))
+            
+        except Exception as e:
+            print(f"Error creating CO {co_data.name}: {str(e)}")
+            continue
+    
+    return created_cos
+
+@app.post("/bulk-pos", response_model=List[POResponse])
+async def bulk_create_pos(
+    bulk_data: BulkPOCreate,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(RoleChecker(["admin", "hod"]))
+):
+    """Create multiple POs with smart mapping generation"""
+    current_user = db.query(User).filter(User.id == current_user_id).first()
+    created_pos = []
+    
+    for po_data in bulk_data.pos:
+        # Check permissions for each PO
+        if current_user.role == "hod" and po_data.department_id != current_user.department_id:
+            continue
+        
+        try:
+            # Create PO
+            new_po = PO(
+                name=po_data.name,
+                description=po_data.description,
+                department_id=po_data.department_id
+            )
+            
+            db.add(new_po)
+            db.commit()
+            db.refresh(new_po)
+            
+            # Generate smart mappings if requested
+            if po_data.auto_generate_mappings:
+                mappings = generate_smart_po_mappings(new_po.id, po_data.department_id, db)
+                for mapping_data in mappings:
+                    mapping = COPOMapping(
+                        co_id=mapping_data["co_id"],
+                        po_id=mapping_data["po_id"],
+                        mapping_strength=mapping_data["mapping_strength"]
+                    )
+                    db.add(mapping)
+                db.commit()
+            
+            created_pos.append(POResponse(
+                id=new_po.id,
+                name=new_po.name,
+                description=new_po.description,
+                department_id=new_po.department_id,
+                created_at=new_po.created_at,
+                updated_at=new_po.updated_at
+            ))
+            
+        except Exception as e:
+            print(f"Error creating PO {po_data.name}: {str(e)}")
+            continue
+    
+    return created_pos
+
+@app.get("/co-po-analytics", response_model=List[COPOAnalytics])
+async def get_co_po_analytics(
+    department_id: Optional[int] = None,
+    co_id: Optional[int] = None,
+    po_id: Optional[int] = None,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(RoleChecker(["admin", "hod", "teacher"]))
+):
+    """Get comprehensive CO-PO analytics"""
+    current_user = db.query(User).filter(User.id == current_user_id).first()
+    
+    # Build query for mappings
+    query = db.query(COPOMapping).options(
+        joinedload(COPOMapping.co),
+        joinedload(COPOMapping.po)
+    )
+    
+    # Apply role-based filters
+    if current_user.role == "hod":
+        query = query.join(CO).filter(CO.department_id == current_user.department_id)
+    elif current_user.role == "teacher":
+        query = query.join(CO).join(Subject).filter(Subject.teacher_id == current_user_id)
+    
+    # Apply additional filters
+    if department_id:
+        query = query.join(CO).filter(CO.department_id == department_id)
+    if co_id:
+        query = query.filter(COPOMapping.co_id == co_id)
+    if po_id:
+        query = query.filter(COPOMapping.po_id == po_id)
+    
+    mappings = query.all()
+    
+    analytics = []
+    for mapping in mappings:
+        analytics_data = calculate_co_po_analytics(mapping.co_id, mapping.po_id, db)
+        
+        analytics.append(COPOAnalytics(
+            co_id=mapping.co_id,
+            co_name=mapping.co.name,
+            po_id=mapping.po_id,
+            po_name=mapping.po.name,
+            mapping_strength=float(mapping.mapping_strength),
+            attainment_percentage=analytics_data["attainment_percentage"],
+            student_count=analytics_data["student_count"],
+            average_score=analytics_data["average_score"],
+            bloom_distribution=analytics_data["bloom_distribution"],
+            difficulty_distribution=analytics_data["difficulty_distribution"]
+        ))
+    
+    return analytics
+
+@app.get("/api/co-po-recommendations", response_model=List[COPORecommendation])
+async def get_co_po_recommendations_endpoint(
+    department_id: int,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(RoleChecker(["admin", "hod", "teacher"]))
+):
+    """Get AI-powered CO-PO mapping recommendations"""
+    current_user = db.query(User).filter(User.id == current_user_id).first()
+    
+    # Apply role-based access control
+    if current_user.role == "hod" and department_id != current_user.department_id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    recommendations = get_co_po_recommendations(department_id, db)
+    return recommendations
 
 @app.get("/health")
 async def health_check():

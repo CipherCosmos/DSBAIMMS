@@ -1,5 +1,5 @@
 from pydantic import BaseModel, EmailStr
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Any
 from datetime import datetime
 from shared.models import UserRole, ExamType, ExamStatus, BloomLevel, DifficultyLevel
 
@@ -313,10 +313,15 @@ class COPOMappingResponse(BaseModel):
 # Exam Schemas
 class ExamSectionCreate(BaseModel):
     name: str
-    instructions: Optional[str]      = None
+    instructions: Optional[str] = None
     total_marks: int
-    total_questions: Optional[int]      = None
+    total_questions: Optional[int] = None
     questions_to_attempt: Optional[int] = None
+    section_type: str = "standard"
+    optional_questions: int = 0
+    mandatory_questions: int = 0
+    question_marks: Optional[float] = None
+    is_optional_section: bool = False
 
 class ExamCreate(BaseModel):
     title: str
@@ -363,20 +368,32 @@ class QuestionCreate(BaseModel):
     question_text: str
     marks: float
     bloom_level: str  # Changed from BloomLevel to str
-    difficulty_level: str    = "medium"  # Changed from DifficultyLevel to str
+    difficulty_level: str = "medium"  # Changed from DifficultyLevel to str
     section_id: int
     co_id: int
-    parent_question_id: Optional[int]      = None
-    question_number: Optional[str]      = None
+    parent_question_id: Optional[int] = None
+    question_number: Optional[str] = None
     order_index: int = 0
+    is_optional: bool = False
+    is_sub_question: bool = False
+    sub_question_text: Optional[str] = None
+    sub_question_marks: Optional[float] = None
+    co_weight: float = 1.0
+    po_auto_mapped: bool = False
 
 class QuestionUpdate(BaseModel):
-    question_text: Optional[str]      = None
-    marks: Optional[float]      = None
-    bloom_level: Optional[str]      = None  # Changed from BloomLevel to str
-    difficulty_level: Optional[str]      = None  # Changed from DifficultyLevel to str
-    question_number: Optional[str]      = None
+    question_text: Optional[str] = None
+    marks: Optional[float] = None
+    bloom_level: Optional[str] = None  # Changed from BloomLevel to str
+    difficulty_level: Optional[str] = None  # Changed from DifficultyLevel to str
+    question_number: Optional[str] = None
     order_index: Optional[int] = None
+    is_optional: Optional[bool] = None
+    is_sub_question: Optional[bool] = None
+    sub_question_text: Optional[str] = None
+    sub_question_marks: Optional[float] = None
+    co_weight: Optional[float] = None
+    po_auto_mapped: Optional[bool] = None
 
 class QuestionResponse(BaseModel):
     id: int
@@ -386,12 +403,18 @@ class QuestionResponse(BaseModel):
     difficulty_level: str
     section_id: int
     co_id: int
-    parent_question_id: Optional[int]      = None
-    question_number: Optional[str]      = None
+    parent_question_id: Optional[int] = None
+    question_number: Optional[str] = None
     order_index: int
+    is_optional: bool
+    is_sub_question: bool
+    sub_question_text: Optional[str] = None
+    sub_question_marks: Optional[float] = None
+    co_weight: float
+    po_auto_mapped: bool
     co_name: str
     section_name: str
-    sub_questions_count: int    = 0
+    sub_questions_count: int = 0
     created_at: datetime
     updated_at: Optional[datetime] = None
 
@@ -406,10 +429,15 @@ class MarkCreate(BaseModel):
     marks_obtained: float
     max_marks: float
     remarks: Optional[str] = None
+    is_attempted: bool = True
+    attempt_number: int = 1
+    is_best_attempt: bool = False
 
 class MarkUpdate(BaseModel):
-    marks_obtained: float
+    marks_obtained: Optional[float] = None
     remarks: Optional[str] = None
+    is_attempted: Optional[bool] = None
+    is_best_attempt: Optional[bool] = None
 
 class MarkResponse(BaseModel):
     id: int
@@ -418,18 +446,81 @@ class MarkResponse(BaseModel):
     question_id: int
     marks_obtained: float
     max_marks: float
-    remarks: Optional[str]      = None
+    remarks: Optional[str] = None
+    is_attempted: bool
+    attempt_number: int
+    is_best_attempt: bool
+    co_contribution: float
+    po_contribution: float
+    bloom_level: Optional[str] = None
+    difficulty_level: Optional[str] = None
     student_name: str
     exam_title: str
-    question_number: Optional[str]      = None
+    question_number: Optional[str] = None
     question_text: str
-    graded_by: Optional[int]      = None
-    graded_at: Optional[datetime]      = None
+    graded_by: Optional[int] = None
+    graded_at: Optional[datetime] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
+
+# Enhanced Exam Analytics Schemas
+class ExamAnalyticsResponse(BaseModel):
+    exam_id: int
+    exam_title: str
+    total_students: int
+    average_score: float
+    pass_rate: float
+    section_analysis: Dict[str, Any]
+    co_po_analysis: Dict[str, Any]
+    bloom_distribution: Dict[str, int]
+    difficulty_analysis: Dict[str, int]
+    class_wise_performance: List[Dict[str, Any]]
+    individual_performance: List[Dict[str, Any]]
+
+class QuestionAttemptCreate(BaseModel):
+    student_id: int
+    question_id: int
+    exam_id: int
+    attempt_number: int
+    marks_obtained: float
+    max_marks: float
+    is_best_attempt: bool = False
+    remarks: Optional[str] = None
+
+class QuestionAttemptResponse(BaseModel):
+    id: int
+    student_id: int
+    question_id: int
+    exam_id: int
+    attempt_number: int
+    marks_obtained: float
+    max_marks: float
+    is_best_attempt: bool
+    attempt_time: datetime
+    remarks: Optional[str] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+class SmartMarksCalculation(BaseModel):
+    exam_id: int
+    student_id: int
+    section_id: int
+    selected_questions: List[int]  # Question IDs selected by student
+    marks_data: List[Dict[str, Any]]  # Marks for each question
+
+class BulkQuestionUpload(BaseModel):
+    exam_id: int
+    section_id: int
+    questions: List[QuestionCreate]
+
+class BulkMarksUpload(BaseModel):
+    exam_id: int
+    marks_data: List[MarkCreate]
 
 # Bulk Operation Schemas
 class BulkOperationResult(BaseModel):

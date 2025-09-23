@@ -71,7 +71,7 @@ export default function AnalyticsPage() {
       // Load dashboard stats
       try {
         const response = await apiClient.getDashboardStats()
-        setDashboardStats(response)
+        setDashboardStats(response.data)
       } catch (error) {
         console.warn('Failed to load dashboard stats:', error)
       }
@@ -79,7 +79,7 @@ export default function AnalyticsPage() {
       // Load CO attainment
       try {
         const response = await apiClient.getCOAttainment()
-        setCOAttainment(response)
+        setCOAttainment(response.data)
       } catch (error) {
         console.warn('Failed to load CO attainment:', error)
       }
@@ -88,7 +88,7 @@ export default function AnalyticsPage() {
       if (user?.role !== 'student') {
         try {
           const response = await apiClient.getPOAttainment()
-          setPOAttainment(response)
+          setPOAttainment(response.data)
         } catch (error) {
           console.warn('Failed to load PO attainment:', error)
         }
@@ -97,7 +97,7 @@ export default function AnalyticsPage() {
       // Load student performance
       try {
         const response = await apiClient.getStudentPerformance()
-        setStudentPerformance(response.slice(0, 10)) // Limit to first 10 students
+        setStudentPerformance(response.data.slice(0, 10)) // Limit to first 10 students
       } catch (error) {
         console.warn('Failed to load student performance:', error)
       }

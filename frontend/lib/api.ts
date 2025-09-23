@@ -169,44 +169,44 @@ class ApiClient {
 
   // ==================== CLASS SERVICE ====================
   async getClasses(params?: any) {
-    return this.directServiceCall('http://localhost:8012', 'get', '/classes', undefined, params)
+    return this.client.get('/api/classes', { params })
   }
 
   async getClass(id: number) {
-    return this.directServiceCall('http://localhost:8012', 'get', `/classes/${id}`)
+    return this.client.get(`/api/classes/${id}`)
   }
 
   async createClass(classData: any) {
-    return this.directServiceCall('http://localhost:8012', 'post', '/classes', classData)
+    return this.client.post('/api/classes', classData)
   }
 
   async updateClass(id: number, classData: any) {
-    return this.directServiceCall('http://localhost:8012', 'put', `/classes/${id}`, classData)
+    return this.client.put(`/api/classes/${id}`, classData)
   }
 
   async deleteClass(id: number) {
-    return this.directServiceCall('http://localhost:8012', 'delete', `/classes/${id}`)
+    return this.client.delete(`/api/classes/${id}`)
   }
 
   // ==================== SUBJECT SERVICE ====================
   async getSubjects(params?: any) {
-    return this.directServiceCall('http://localhost:8012', 'get', '/subjects', undefined, params)
+    return this.client.get('/api/subjects', { params })
   }
 
   async getSubject(id: number) {
-    return this.directServiceCall('http://localhost:8012', 'get', `/subjects/${id}`)
+    return this.client.get(`/api/subjects/${id}`)
   }
 
   async createSubject(subjectData: any) {
-    return this.directServiceCall('http://localhost:8012', 'post', '/subjects', subjectData)
+    return this.client.post('/api/subjects', subjectData)
   }
 
   async updateSubject(id: number, subjectData: any) {
-    return this.directServiceCall('http://localhost:8012', 'put', `/subjects/${id}`, subjectData)
+    return this.client.put(`/api/subjects/${id}`, subjectData)
   }
 
   async deleteSubject(id: number) {
-    return this.directServiceCall('http://localhost:8012', 'delete', `/subjects/${id}`)
+    return this.client.delete(`/api/subjects/${id}`)
   }
 
   // ==================== PO SERVICE ====================
@@ -272,6 +272,31 @@ class ApiClient {
     return this.client.delete(`/api/co-po-mappings/${id}`)
   }
 
+  // Smart CO/PO creation
+  async createSmartCO(coData: any) {
+    return this.client.post('/api/smart-cos', coData)
+  }
+
+  async createSmartPO(poData: any) {
+    return this.client.post('/api/smart-pos', poData)
+  }
+
+  async bulkCreateCOs(cosData: any) {
+    return this.client.post('/api/bulk-cos', cosData)
+  }
+
+  async bulkCreatePOs(posData: any) {
+    return this.client.post('/api/bulk-pos', posData)
+  }
+
+  async getCOPOAnalytics(params?: any) {
+    return this.client.get('/api/co-po-analytics', { params })
+  }
+
+  async getCOPORecommendations(departmentId: number) {
+    return this.client.get(`/api/co-po-recommendations?department_id=${departmentId}`)
+  }
+
   // ==================== EXAM SERVICE ====================
   async getExams(params?: any) {
     return this.client.get('/api/exams', { params })
@@ -295,6 +320,55 @@ class ApiClient {
 
   async publishExam(id: number) {
     return this.client.put(`/api/exams/${id}/publish`)
+  }
+
+  // Smart exam creation
+  async createSmartExam(examData: any) {
+    return this.client.post('/api/exams/smart-create', examData)
+  }
+
+  async bulkCreateExams(examsData: any) {
+    return this.client.post('/api/exams/bulk-create', examsData)
+  }
+
+  async getExamTemplates(examType?: string) {
+    return this.client.get('/api/exams/templates', { 
+      params: examType ? { exam_type: examType } : {} 
+    })
+  }
+
+  async getExamAnalytics(examId: number) {
+    return this.client.get(`/api/exams/${examId}/analytics`)
+  }
+
+  // Enhanced exam functionality
+  async calculateSmartMarks(examId: number, studentId: number, sectionId: number) {
+    return this.client.post(`/api/exams/${examId}/smart-marks`, {
+      exam_id: examId,
+      student_id: studentId,
+      section_id: sectionId
+    })
+  }
+
+  async bulkCreateQuestions(examId: number, sectionId: number, questions: any[]) {
+    return this.client.post(`/api/exams/${examId}/bulk-questions`, {
+      exam_id: examId,
+      section_id: sectionId,
+      questions: questions
+    })
+  }
+
+  async bulkCreateMarks(examId: number, marks: any[]) {
+    return this.client.post(`/api/exams/${examId}/bulk-marks`, {
+      exam_id: examId,
+      marks_data: marks
+    })
+  }
+
+  async exportExamAnalytics(examId: number, format: string = 'csv') {
+    return this.client.get(`/api/exams/${examId}/export/analytics?format=${format}`, {
+      responseType: 'blob'
+    })
   }
 
   // ==================== EXAM SECTION SERVICE ====================
@@ -374,6 +448,29 @@ class ApiClient {
     return this.client.get(`/api/marks/${examId}/student-scores`, {
       params: { use_smart_scoring: useSmartScoring }
     })
+  }
+
+  // Enhanced marks functionality
+  async calculateSmartMarksForSection(examId: number, studentId: number, sectionId: number) {
+    return this.client.post('/api/marks/smart-calculation', {
+      exam_id: examId,
+      student_id: studentId,
+      section_id: sectionId
+    })
+  }
+
+  async getMarksAnalytics(examId: number) {
+    return this.client.get(`/api/marks/analytics/${examId}`)
+  }
+
+  async exportMarks(examId: number, format: string = 'csv') {
+    return this.client.get(`/api/marks/export/${examId}?format=${format}`, {
+      responseType: 'blob'
+    })
+  }
+
+  async bulkCreateMarksEnhanced(marksData: any) {
+    return this.client.post('/api/marks/bulk', marksData)
   }
 
   async downloadMarksTemplate(examId: number) {

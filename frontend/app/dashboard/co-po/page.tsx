@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Plus, Search, Edit, Trash2, Eye, Target, BookOpen, Building, Filter, Upload, Download } from 'lucide-react'
+import { Plus, Search, Edit, Trash2, Eye, Target, BookOpen, Building, Filter, Upload, Download, Zap, Brain, BarChart3, Lightbulb, Settings } from 'lucide-react'
 import { toast } from 'react-hot-toast'
 
 interface PO {
@@ -54,6 +54,44 @@ interface Subject {
   department_name?: string
 }
 
+interface COPOAnalytics {
+  co_id: number
+  co_name: string
+  po_id: number
+  po_name: string
+  mapping_strength: number
+  attainment_percentage: number
+  student_count: number
+  average_score: number
+  bloom_distribution: Record<string, number>
+  difficulty_distribution: Record<string, number>
+}
+
+interface COPORecommendation {
+  co_id: number
+  po_id: number
+  confidence_score: number
+  reason: string
+  suggested_strength: number
+}
+
+interface SmartCOCreate {
+  name: string
+  description: string
+  subject_id: number
+  department_id: number
+  auto_generate_mappings: boolean
+  suggested_pos?: number[]
+}
+
+interface SmartPOCreate {
+  name: string
+  description: string
+  department_id: number
+  auto_generate_mappings: boolean
+  suggested_cos?: number[]
+}
+
 export default function COPOPage() {
   const { user } = useAuth()
   const [activeTab, setActiveTab] = useState<'pos' | 'cos' | 'mappings'>('pos')
@@ -68,6 +106,20 @@ export default function COPOPage() {
   const [selectedSubject, setSelectedSubject] = useState('')
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [editingItem, setEditingItem] = useState<any>(null)
+  
+  // Smart CO/PO features state
+  const [showSmartCreate, setShowSmartCreate] = useState(false)
+  const [showAnalytics, setShowAnalytics] = useState(false)
+  const [showRecommendations, setShowRecommendations] = useState(false)
+  const [analytics, setAnalytics] = useState<COPOAnalytics[]>([])
+  const [recommendations, setRecommendations] = useState<COPORecommendation[]>([])
+  const [smartFormData, setSmartFormData] = useState<SmartCOCreate | SmartPOCreate>({
+    name: '',
+    description: '',
+    subject_id: 0,
+    department_id: 0,
+    auto_generate_mappings: true
+  })
 
   useEffect(() => {
     loadInitialData()
@@ -194,6 +246,73 @@ export default function COPOPage() {
     }
   }
 
+  // Smart CO/PO creation functions
+  const handleSmartCreate = async (e: React.FormEvent) => {
+    e.preventDefault()
+    try {
+      if (activeTab === 'cos') {
+        await apiClient.createSmartCO(smartFormData)
+        toast.success('Smart CO created successfully')
+      } else if (activeTab === 'pos') {
+        await apiClient.createSmartPO(smartFormData)
+        toast.success('Smart PO created successfully')
+      }
+      setShowSmartCreate(false)
+      setSmartFormData({
+        name: '',
+        description: '',
+        subject_id: 0,
+        department_id: 0,
+        auto_generate_mappings: true
+      })
+      loadInitialData()
+    } catch (error: any) {
+      console.error('Error creating smart CO/PO:', error)
+      toast.error('Failed to create smart CO/PO')
+    }
+  }
+
+  const loadAnalytics = async () => {
+    try {
+      const data = await apiClient.getCOPOAnalytics({
+        department_id: selectedDepartment || undefined
+      })
+      setAnalytics(Array.isArray(data) ? data : [])
+    } catch (error) {
+      console.error('Error loading analytics:', error)
+      toast.error('Failed to load analytics')
+    }
+  }
+
+  const loadRecommendations = async () => {
+    try {
+      const departmentId = selectedDepartment || departments[0]?.id
+      if (departmentId) {
+        const data = await apiClient.getCOPORecommendations(departmentId)
+        setRecommendations(Array.isArray(data) ? data : [])
+      }
+    } catch (error) {
+      console.error('Error loading recommendations:', error)
+      toast.error('Failed to load recommendations')
+    }
+  }
+
+  const applyRecommendation = async (recommendation: COPORecommendation) => {
+    try {
+      await apiClient.createCOPOMapping({
+        co_id: recommendation.co_id,
+        po_id: recommendation.po_id,
+        mapping_strength: recommendation.suggested_strength
+      })
+      toast.success('Mapping applied successfully')
+      loadInitialData()
+      loadRecommendations()
+    } catch (error: any) {
+      console.error('Error applying recommendation:', error)
+      toast.error('Failed to apply recommendation')
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-96">
@@ -207,15 +326,41 @@ export default function COPOPage() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-bold text-gray-900">CO-PO Management</h2>
-          <p className="text-gray-600">Manage Program Outcomes, Course Outcomes, and their mappings</p>
+          <p className="text-gray-600">Smart management of Program Outcomes, Course Outcomes, and their mappings</p>
         </div>
         <div className="flex gap-2">
+          <Button
+            variant="outline"
+            onClick={() => setShowAnalytics(true)}
+            className="flex items-center gap-2"
+          >
+            <BarChart3 className="h-4 w-4" />
+            Analytics
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => {
+              loadRecommendations()
+              setShowRecommendations(true)
+            }}
+            className="flex items-center gap-2"
+          >
+            <Lightbulb className="h-4 w-4" />
+            AI Recommendations
+          </Button>
+          <Button
+            onClick={() => setShowSmartCreate(true)}
+            className="flex items-center gap-2"
+          >
+            <Zap className="h-4 w-4" />
+            Smart Create {activeTab === 'pos' ? 'PO' : activeTab === 'cos' ? 'CO' : 'Mapping'}
+          </Button>
           <Button
             variant="outline"
             onClick={() => setShowCreateDialog(true)}
           >
             <Plus className="h-4 w-4 mr-2" />
-            Create {activeTab === 'pos' ? 'PO' : activeTab === 'cos' ? 'CO' : 'Mapping'}
+            Manual Create
           </Button>
         </div>
       </div>
@@ -564,6 +709,239 @@ export default function COPOPage() {
                 </Button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Smart CO/PO Creation Modal */}
+      {showSmartCreate && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white p-6 rounded-lg w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <h2 className="text-xl font-bold mb-4">
+              Smart {activeTab === 'pos' ? 'PO' : activeTab === 'cos' ? 'CO' : 'Mapping'} Creation
+            </h2>
+            <form onSubmit={handleSmartCreate} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">Name</label>
+                <input
+                  type="text"
+                  value={smartFormData.name}
+                  onChange={(e) => setSmartFormData(prev => ({...prev, name: e.target.value}))}
+                  className="w-full px-3 py-2 border rounded-md"
+                  placeholder={`e.g., ${activeTab === 'pos' ? 'PO1' : 'CO1'}`}
+                  required
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium mb-1">Description</label>
+                <textarea
+                  value={smartFormData.description}
+                  onChange={(e) => setSmartFormData(prev => ({...prev, description: e.target.value}))}
+                  className="w-full px-3 py-2 border rounded-md"
+                  rows={4}
+                  placeholder="Detailed description of the outcome..."
+                  required
+                />
+              </div>
+
+              {activeTab === 'cos' && (
+                <div>
+                  <label className="block text-sm font-medium mb-1">Subject</label>
+                  <select
+                    value={smartFormData.subject_id}
+                    onChange={(e) => setSmartFormData(prev => ({...prev, subject_id: parseInt(e.target.value)}))}
+                    className="w-full px-3 py-2 border rounded-md"
+                    required
+                  >
+                    <option value={0}>Select Subject</option>
+                    {subjects.map(subject => (
+                      <option key={subject.id} value={subject.id}>
+                        {subject.name} ({subject.code})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-sm font-medium mb-1">Department</label>
+                <select
+                  value={smartFormData.department_id}
+                  onChange={(e) => setSmartFormData(prev => ({...prev, department_id: parseInt(e.target.value)}))}
+                  className="w-full px-3 py-2 border rounded-md"
+                  required
+                >
+                  <option value={0}>Select Department</option>
+                  {departments.map(dept => (
+                    <option key={dept.id} value={dept.id}>
+                      {dept.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="auto_generate"
+                  checked={smartFormData.auto_generate_mappings}
+                  onChange={(e) => setSmartFormData(prev => ({...prev, auto_generate_mappings: e.target.checked}))}
+                  className="rounded"
+                />
+                <label htmlFor="auto_generate" className="text-sm font-medium">
+                  Auto-generate smart mappings using AI
+                </label>
+              </div>
+
+              <div className="flex gap-2">
+                <button
+                  type="submit"
+                  className="bg-primary text-primary-foreground px-4 py-2 rounded-md hover:bg-primary/90"
+                >
+                  Create Smart {activeTab === 'pos' ? 'PO' : activeTab === 'cos' ? 'CO' : 'Mapping'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowSmartCreate(false)}
+                  className="bg-gray-500 text-white px-4 py-2 rounded-md hover:bg-gray-600"
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Analytics Modal */}
+      {showAnalytics && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white p-6 rounded-lg w-full max-w-6xl max-h-[90vh] overflow-y-auto">
+            <h2 className="text-xl font-bold mb-4">CO-PO Analytics</h2>
+            <div className="mb-4">
+              <Button onClick={loadAnalytics} className="mb-4">
+                <BarChart3 className="h-4 w-4 mr-2" />
+                Refresh Analytics
+              </Button>
+            </div>
+            
+            {analytics.length > 0 ? (
+              <div className="overflow-x-auto">
+                <table className="w-full border-collapse border border-gray-300">
+                  <thead>
+                    <tr className="bg-gray-50">
+                      <th className="border border-gray-300 px-4 py-2">CO</th>
+                      <th className="border border-gray-300 px-4 py-2">PO</th>
+                      <th className="border border-gray-300 px-4 py-2">Strength</th>
+                      <th className="border border-gray-300 px-4 py-2">Attainment %</th>
+                      <th className="border border-gray-300 px-4 py-2">Students</th>
+                      <th className="border border-gray-300 px-4 py-2">Avg Score</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {analytics.map((item, index) => (
+                      <tr key={index}>
+                        <td className="border border-gray-300 px-4 py-2">{item.co_name}</td>
+                        <td className="border border-gray-300 px-4 py-2">{item.po_name}</td>
+                        <td className="border border-gray-300 px-4 py-2">
+                          <Badge className={getStrengthColor(item.mapping_strength)}>
+                            {getStrengthLabel(item.mapping_strength)}
+                          </Badge>
+                        </td>
+                        <td className="border border-gray-300 px-4 py-2">{item.attainment_percentage.toFixed(1)}%</td>
+                        <td className="border border-gray-300 px-4 py-2">{item.student_count}</td>
+                        <td className="border border-gray-300 px-4 py-2">{item.average_score.toFixed(1)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="text-center py-8 text-gray-500">
+                No analytics data available. Load analytics to see CO-PO performance metrics.
+              </div>
+            )}
+            
+            <div className="flex justify-end mt-6">
+              <button
+                onClick={() => setShowAnalytics(false)}
+                className="bg-gray-500 text-white px-4 py-2 rounded-md hover:bg-gray-600"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* AI Recommendations Modal */}
+      {showRecommendations && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white p-6 rounded-lg w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+            <h2 className="text-xl font-bold mb-4">AI-Powered CO-PO Mapping Recommendations</h2>
+            <div className="mb-4">
+              <Button onClick={loadRecommendations} className="mb-4">
+                <Brain className="h-4 w-4 mr-2" />
+                Refresh Recommendations
+              </Button>
+            </div>
+            
+            {recommendations.length > 0 ? (
+              <div className="space-y-4">
+                {recommendations.map((rec, index) => (
+                  <div key={index} className="border rounded-lg p-4 hover:shadow-md transition-shadow">
+                    <div className="flex justify-between items-start mb-2">
+                      <div>
+                        <h3 className="font-semibold">
+                          CO{rec.co_id} → PO{rec.po_id}
+                        </h3>
+                        <p className="text-sm text-gray-600">{rec.reason}</p>
+                      </div>
+                      <div className="text-right">
+                        <Badge className="bg-blue-100 text-blue-800">
+                          {Math.round(rec.confidence_score * 100)}% confidence
+                        </Badge>
+                        <Badge className={getStrengthColor(rec.suggested_strength)}>
+                          {getStrengthLabel(rec.suggested_strength)}
+                        </Badge>
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        onClick={() => applyRecommendation(rec)}
+                        className="bg-green-600 hover:bg-green-700"
+                      >
+                        Apply Mapping
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          // Show details or edit
+                        }}
+                      >
+                        View Details
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-8 text-gray-500">
+                No recommendations available. AI will analyze existing COs and POs to suggest mappings.
+              </div>
+            )}
+            
+            <div className="flex justify-end mt-6">
+              <button
+                onClick={() => setShowRecommendations(false)}
+                className="bg-gray-500 text-white px-4 py-2 rounded-md hover:bg-gray-600"
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}
