@@ -760,6 +760,55 @@ async def bulk_upload_marks(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to process file: {str(e)}")
 
+async def upload_questions_bulk(file: UploadFile, db: Session, current_user_id: int):
+    """Upload questions in bulk"""
+    try:
+        # Read and parse the file
+        content = await file.read()
+        df = pd.read_csv(io.StringIO(content.decode('utf-8')))
+        
+        errors = []
+        created_questions = []
+        
+        for index, row in df.iterrows():
+            try:
+                # Validate required fields
+                if pd.isna(row.get('question_text')) or pd.isna(row.get('marks')) or pd.isna(row.get('subject_id')):
+                    errors.append(f"Row {index + 2}: Missing required fields")
+                    continue
+                
+                # Create question
+                question = Question(
+                    question_text=row['question_text'],
+                    marks=int(row['marks']),
+                    bloom_level=row.get('bloom_level', 'REMEMBER'),
+                    difficulty_level=row.get('difficulty_level', 'MEDIUM'),
+                    subject_id=int(row['subject_id']),
+                    created_by=current_user_id,
+                    question_number=row.get('question_number', ''),
+                    is_optional=row.get('is_optional', False)
+                )
+                
+                db.add(question)
+                db.flush()  # Get the ID
+                created_questions.append(question)
+                
+            except Exception as e:
+                errors.append(f"Row {index + 2}: {str(e)}")
+        
+        db.commit()
+        
+        return BulkOperationResult(
+            success=True,
+            processed_count=len(created_questions),
+            error_count=len(errors),
+            errors=errors,
+            created_ids=[q.id for q in created_questions]
+        )
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to process file: {str(e)}")
+
 @app.get("/api/bulk/template/{entity_type}")
 async def download_template(
     entity_type: str,
@@ -1132,6 +1181,103 @@ async def bulk_delete_users(
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Error deleting users: {str(e)}")
+
+@app.post("/api/bulk/validate/{entity_type}")
+async def validate_bulk_data(
+    entity_type: str,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(RoleChecker(["admin", "hod", "teacher"]))
+):
+    """Validate bulk upload data before processing"""
+    try:
+        if entity_type not in ["users", "subjects", "classes", "marks", "questions"]:
+            raise HTTPException(status_code=400, detail="Invalid entity type")
+        
+        # Read and parse the file
+        content = await file.read()
+        df = pd.read_csv(io.StringIO(content.decode('utf-8')))
+        
+        # Basic validation - check required columns
+        errors = []
+        warnings = []
+        
+        if entity_type == "users":
+            required_columns = ["username", "email", "full_name", "role"]
+            for col in required_columns:
+                if col not in df.columns:
+                    errors.append(f"Missing required column: {col}")
+        
+        elif entity_type == "subjects":
+            required_columns = ["name", "code", "department_id"]
+            for col in required_columns:
+                if col not in df.columns:
+                    errors.append(f"Missing required column: {col}")
+        
+        elif entity_type == "classes":
+            required_columns = ["name", "department_id"]
+            for col in required_columns:
+                if col not in df.columns:
+                    errors.append(f"Missing required column: {col}")
+        
+        elif entity_type == "marks":
+            required_columns = ["student_id", "exam_id", "marks_obtained"]
+            for col in required_columns:
+                if col not in df.columns:
+                    errors.append(f"Missing required column: {col}")
+        
+        elif entity_type == "questions":
+            required_columns = ["question_text", "marks", "subject_id"]
+            for col in required_columns:
+                if col not in df.columns:
+                    errors.append(f"Missing required column: {col}")
+        
+        # Check for duplicate values in key columns
+        if entity_type == "users" and "username" in df.columns:
+            if df["username"].duplicated().any():
+                warnings.append("Duplicate usernames found")
+        
+        if entity_type == "subjects" and "code" in df.columns:
+            if df["code"].duplicated().any():
+                warnings.append("Duplicate subject codes found")
+        
+        return {
+            "valid": len(errors) == 0,
+            "errors": errors,
+            "warnings": warnings,
+            "preview": df.head(5).to_dict('records'),
+            "total_rows": len(df)
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/bulk/upload/{entity_type}")
+async def upload_bulk_data(
+    entity_type: str,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(RoleChecker(["admin", "hod", "teacher"]))
+):
+    """Upload and process bulk data"""
+    try:
+        if entity_type not in ["users", "subjects", "classes", "marks", "questions"]:
+            raise HTTPException(status_code=400, detail="Invalid entity type")
+        
+        # Route to appropriate upload endpoint
+        if entity_type == "users":
+            return await upload_users_bulk(file, db, current_user_id)
+        elif entity_type == "subjects":
+            return await upload_subjects_bulk(file, db, current_user_id)
+        elif entity_type == "classes":
+            return await upload_classes_bulk(file, db, current_user_id)
+        elif entity_type == "marks":
+            return await upload_marks_bulk(file, db, current_user_id)
+        elif entity_type == "questions":
+            return await upload_questions_bulk(file, db, current_user_id)
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/health")
 async def health_check():

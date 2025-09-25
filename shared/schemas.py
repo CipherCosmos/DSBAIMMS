@@ -203,11 +203,78 @@ class DepartmentResponse(DepartmentBase):
     class Config:
         from_attributes = True
 
+# Semester Schemas
+class SemesterCreate(BaseModel):
+    department_id: int
+    semester_number: int
+    academic_year: str
+    name: str
+    start_date: Optional[datetime] = None
+    end_date: Optional[datetime] = None
+
+class SemesterUpdate(BaseModel):
+    name: Optional[str] = None
+    start_date: Optional[datetime] = None
+    end_date: Optional[datetime] = None
+    is_active: Optional[bool] = None
+    is_completed: Optional[bool] = None
+
+class SemesterResponse(BaseModel):
+    id: int
+    department_id: int
+    semester_number: int
+    academic_year: str
+    name: str
+    start_date: Optional[datetime] = None
+    end_date: Optional[datetime] = None
+    is_active: bool
+    is_completed: bool
+    department_name: str
+    classes_count: int = 0
+    students_count: int = 0
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+# Student Semester Enrollment Schemas
+class StudentSemesterEnrollmentCreate(BaseModel):
+    student_id: int
+    semester_id: int
+    class_id: int
+    status: str = "active"
+
+class StudentSemesterEnrollmentUpdate(BaseModel):
+    status: Optional[str] = None
+    final_grade: Optional[str] = None
+    gpa: Optional[float] = None
+    attendance_percentage: Optional[float] = None
+
+class StudentSemesterEnrollmentResponse(BaseModel):
+    id: int
+    student_id: int
+    semester_id: int
+    class_id: int
+    enrollment_date: datetime
+    status: str
+    final_grade: Optional[str] = None
+    gpa: Optional[float] = None
+    attendance_percentage: Optional[float] = None
+    student_name: str
+    semester_name: str
+    class_name: str
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
 # Class Schemas
 class ClassCreate(BaseModel):
     name: str
     year: int
-    semester: int
+    semester_id: int
     section: str
     department_id: int
     class_teacher_id: Optional[int]      = None
@@ -216,7 +283,7 @@ class ClassCreate(BaseModel):
 class ClassUpdate(BaseModel):
     name: Optional[str]      = None
     year: Optional[int]      = None
-    semester: Optional[int]      = None
+    semester_id: Optional[int]      = None
     section: Optional[str]      = None
     class_teacher_id: Optional[int]      = None
     cr_id: Optional[int] = None
@@ -225,14 +292,16 @@ class ClassResponse(BaseModel):
     id: int
     name: str
     year: int
-    semester: int
+    semester_id: int
     section: str
     department_id: int
     class_teacher_id: Optional[int]      = None
     cr_id: Optional[int]      = None
     department_name: str
+    semester_name: str
     class_teacher_name: Optional[str]      = None
     cr_name: Optional[str]      = None
+    students_count: int = 0
     created_at: datetime
     updated_at: Optional[datetime] = None
 

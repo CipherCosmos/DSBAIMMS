@@ -1,220 +1,259 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
-import { useAuth } from '@/hooks/useAuth'
+import { useState, useEffect } from 'react'
 import { apiClient } from '@/lib/api'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
-import { Plus, Search, Edit, Trash2, Eye, Play, Pause, Calendar, Clock, Users, BookOpen, Filter, Settings, BarChart3, FileText, Zap } from 'lucide-react'
-import { toast } from 'react-hot-toast'
-import Link from 'next/link'
+import { EnhancedExamCreationForm } from '@/components/exams/EnhancedExamCreationForm'
+import { 
+  Award, Plus, Edit, Trash2, Save, X, Eye, 
+  RefreshCw, Download, Upload, Filter, Search,
+  Users, BookOpen, Calendar, Building, Clock, FileText, Target
+} from 'lucide-react'
 
 interface Exam {
   id: number
   title: string
-  description: string
+  description?: string
   subject_id: number
+  subject_name?: string
   class_id: number
+  class_name?: string
   exam_type: string
   status: string
   total_marks: number
   duration_minutes: number
-  exam_date: string
-  subject_name: string
-  class_name: string
-  sections_count: number
-  created_at: string
-}
-
-interface ExamTemplate {
-  name: string
-  description: string
-  exam_type: string
-  duration_minutes: number
-  sections: Array<{
-    name: string
-    instructions: string
-    total_marks: number
-    total_questions: number
-    questions_to_attempt: number
-    question_type: string
-  }>
-  question_distribution: {
-    bloom_levels: Record<string, number>
-    difficulty: Record<string, number>
-  }
-}
-
-interface SmartExamCreate {
-  title: string
-  description?: string
-  subject_id: number
-  class_id: number
-  exam_type: string
-  duration_minutes: number
   exam_date?: string
   start_time?: string
   end_time?: string
-  sections: Array<any>
-  auto_generate_questions: boolean
-  question_distribution?: Record<string, any>
+  created_at: string
+  updated_at?: string
+}
+
+interface Subject {
+  id: number
+  name: string
+  code: string
+  class_id: number
+  class_name?: string
+}
+
+interface Class {
+  id: number
+  name: string
+  department_id: number
+  department_name?: string
+}
+
+interface ExamSection {
+  id: number
+  exam_id: number
+  name: string
+  instructions?: string
+  total_marks: number
+  total_questions: number
+  questions_to_attempt: number
 }
 
 export default function ExamsPage() {
-  const { user } = useAuth()
   const [exams, setExams] = useState<Exam[]>([])
+  const [subjects, setSubjects] = useState<Subject[]>([])
+  const [classes, setClasses] = useState<Class[]>([])
+  const [examSections, setExamSections] = useState<ExamSection[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [showForm, setShowForm] = useState(false)
+  const [showEnhancedForm, setShowEnhancedForm] = useState(false)
+  const [editingExam, setEditingExam] = useState<Exam | null>(null)
+  const [filterSubject, setFilterSubject] = useState<number | null>(null)
+  const [filterClass, setFilterClass] = useState<number | null>(null)
+  const [filterStatus, setFilterStatus] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
-  const [selectedType, setSelectedType] = useState('')
-  const [selectedStatus, setSelectedStatus] = useState('')
-  const [selectedSubject, setSelectedSubject] = useState('')
-  const [subjects, setSubjects] = useState([])
-  const [classes, setClasses] = useState([])
-  const [departments, setDepartments] = useState([])
-  
-  // Smart exam creation state
-  const [showSmartCreate, setShowSmartCreate] = useState(false)
-  const [showTemplates, setShowTemplates] = useState(false)
-  const [templates, setTemplates] = useState<ExamTemplate[]>([])
-  const [selectedTemplate, setSelectedTemplate] = useState<ExamTemplate | null>(null)
-  const [smartFormData, setSmartFormData] = useState<SmartExamCreate>({
+
+  const [formData, setFormData] = useState({
     title: '',
     description: '',
     subject_id: 0,
     class_id: 0,
     exam_type: 'internal',
     duration_minutes: 180,
-    sections: [],
-    auto_generate_questions: true,
-    question_distribution: {}
+    exam_date: '',
+    start_time: '',
+    end_time: ''
   })
 
-  useEffect(() => {
-    loadExams()
-    loadSubjects()
-    loadClasses()
-    loadDepartments()
-    loadTemplates()
-  }, [])
+  const examTypes = [
+    { value: 'internal', label: 'Internal' },
+    { value: 'external', label: 'External' },
+    { value: 'assignment', label: 'Assignment' },
+    { value: 'quiz', label: 'Quiz' },
+    { value: 'project', label: 'Project' }
+  ]
 
-  const loadExams = async () => {
+  const examStatuses = [
+    { value: 'draft', label: 'Draft' },
+    { value: 'published', label: 'Published' },
+    { value: 'completed', label: 'Completed' },
+    { value: 'archived', label: 'Archived' }
+  ]
+
+  useEffect(() => {
+    loadData()
+  }, [filterSubject, filterClass, filterStatus])
+
+  const loadData = async () => {
     try {
       setLoading(true)
-      const data = await apiClient.getExams()
-      setExams(Array.isArray(data) ? data : [])
+      setError(null)
+
+      const [examsResponse, subjectsResponse, classesResponse] = await Promise.all([
+        apiClient.get('/api/exams'),
+        apiClient.get('/api/subjects'),
+        apiClient.get('/api/classes')
+      ])
+
+      let examsData = examsResponse.data || []
+      const subjectsData = subjectsResponse.data || []
+      const classesData = classesResponse.data || []
+
+      // Filter by subject if selected
+      if (filterSubject) {
+        examsData = examsData.filter((e: Exam) => e.subject_id === filterSubject)
+      }
+
+      // Filter by class if selected
+      if (filterClass) {
+        examsData = examsData.filter((e: Exam) => e.class_id === filterClass)
+      }
+
+      // Filter by status if selected
+      if (filterStatus) {
+        examsData = examsData.filter((e: Exam) => e.status === filterStatus)
+      }
+
+      // Filter by search term
+      if (searchTerm) {
+        examsData = examsData.filter((e: Exam) => 
+          e.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          e.description?.toLowerCase().includes(searchTerm.toLowerCase())
+        )
+      }
+
+      setExams(examsData)
+      setSubjects(subjectsData)
+      setClasses(classesData)
     } catch (error) {
-      console.error('Error loading exams:', error)
-      toast.error('Failed to load exams')
+      console.error('Error loading data:', error)
+      setError('Failed to load exams')
     } finally {
       setLoading(false)
     }
   }
 
-  const loadSubjects = async () => {
-    try {
-      const data = await apiClient.getSubjects()
-      // Ensure data is an array
-      setSubjects(Array.isArray(data) ? data : [])
-    } catch (error) {
-      console.error('Error loading subjects:', error)
-      setSubjects([])
-    }
-  }
-
-  const loadClasses = async () => {
-    try {
-      const data = await apiClient.getClasses()
-      setClasses(Array.isArray(data) ? data : [])
-    } catch (error) {
-      console.error('Error loading classes:', error)
-      setClasses([])
-    }
-  }
-
-  const loadDepartments = async () => {
-    try {
-      const data = await apiClient.getDepartments()
-      setDepartments(Array.isArray(data) ? data : [])
-    } catch (error) {
-      console.error('Error loading departments:', error)
-      setDepartments([])
-    }
-  }
-
-  const loadTemplates = async () => {
-    try {
-      const data = await apiClient.getExamTemplates()
-      setTemplates(Array.isArray(data) ? data : [])
-    } catch (error) {
-      console.error('Error loading templates:', error)
-      setTemplates([])
-    }
-  }
-
-  const handleSearch = () => {
-    loadExams()
-  }
-
-  const handlePublish = async (examId: number) => {
-    try {
-      await apiClient.publishExam(examId)
-      toast.success('Exam published successfully')
-      loadExams()
-    } catch (error: any) {
-      toast.error(error.detail || 'Failed to publish exam')
-    }
-  }
-
-  const handleDelete = async (examId: number) => {
-    if (!confirm('Are you sure you want to delete this exam?')) return
-
-    try {
-      await apiClient.deleteExam(examId)
-      toast.success('Exam deleted successfully')
-      loadExams()
-    } catch (error: any) {
-      toast.error(error.detail || 'Failed to delete exam')
-    }
-  }
-
-  // Smart exam creation functions
-  const handleSmartCreate = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     try {
-      await apiClient.createSmartExam(smartFormData)
-      toast.success('Smart exam created successfully')
-      setShowSmartCreate(false)
-      setSmartFormData({
+      if (editingExam) {
+        await apiClient.put(`/api/exams/${editingExam.id}`, formData)
+      } else {
+        await apiClient.post('/api/exams', formData)
+      }
+      setShowForm(false)
+      setEditingExam(null)
+      setFormData({
         title: '',
         description: '',
         subject_id: 0,
         class_id: 0,
         exam_type: 'internal',
         duration_minutes: 180,
-        sections: [],
-        auto_generate_questions: true,
-        question_distribution: {}
+        exam_date: '',
+        start_time: '',
+        end_time: ''
       })
-      loadExams()
-    } catch (error: any) {
-      console.error('Error creating smart exam:', error)
-      toast.error('Failed to create smart exam')
+      loadData()
+    } catch (error) {
+      console.error('Error saving exam:', error)
+      setError('Failed to save exam')
     }
   }
 
-  const handleTemplateSelect = (template: ExamTemplate) => {
-    setSelectedTemplate(template)
-    setSmartFormData(prev => ({
-      ...prev,
-      exam_type: template.exam_type,
-      duration_minutes: template.duration_minutes,
-      sections: template.sections,
-      question_distribution: template.question_distribution
-    }))
-    setShowTemplates(false)
-    setShowSmartCreate(true)
+  const handleEdit = (exam: Exam) => {
+    setEditingExam(exam)
+    setFormData({
+      title: exam.title,
+      description: exam.description || '',
+      subject_id: exam.subject_id,
+      class_id: exam.class_id,
+      exam_type: exam.exam_type,
+      duration_minutes: exam.duration_minutes,
+      exam_date: exam.exam_date || '',
+      start_time: exam.start_time || '',
+      end_time: exam.end_time || ''
+    })
+    setShowForm(true)
+  }
+
+  const handleDelete = async (id: number) => {
+    if (!confirm('Are you sure you want to delete this exam?')) return
+
+    try {
+      await apiClient.delete(`/api/exams/${id}`)
+      loadData()
+    } catch (error) {
+      console.error('Error deleting exam:', error)
+      setError('Failed to delete exam')
+    }
+  }
+
+  const handleStatusChange = async (exam: Exam, newStatus: string) => {
+    try {
+      await apiClient.put(`/api/exams/${exam.id}`, {
+        ...exam,
+        status: newStatus
+      })
+      loadData()
+    } catch (error) {
+      console.error('Error updating exam status:', error)
+      setError('Failed to update exam status')
+    }
+  }
+
+  const exportData = async () => {
+    try {
+      const csvContent = convertToCSV(exams)
+      const blob = new Blob([csvContent], { type: 'text/csv' })
+      const url = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = 'exams.csv'
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      window.URL.revokeObjectURL(url)
+    } catch (error) {
+      console.error('Error exporting data:', error)
+      setError('Failed to export data')
+    }
+  }
+
+  const convertToCSV = (data: Exam[]) => {
+    if (data.length === 0) return ''
+    
+    const headers = ['ID', 'Title', 'Subject', 'Class', 'Type', 'Status', 'Total Marks', 'Duration', 'Exam Date']
+    const csvRows = [
+      headers.join(','),
+      ...data.map(row => [
+        row.id,
+        row.title,
+        row.subject_name || '',
+        row.class_name || '',
+        row.exam_type,
+        row.status,
+        row.total_marks,
+        row.duration_minutes,
+        row.exam_date || ''
+      ].join(','))
+    ]
+    return csvRows.join('\n')
   }
 
   const getStatusColor = (status: string) => {
@@ -222,11 +261,11 @@ export default function ExamsPage() {
       case 'draft':
         return 'bg-gray-100 text-gray-800'
       case 'published':
-        return 'bg-green-100 text-green-800'
-      case 'active':
         return 'bg-blue-100 text-blue-800'
       case 'completed':
-        return 'bg-purple-100 text-purple-800'
+        return 'bg-green-100 text-green-800'
+      case 'archived':
+        return 'bg-yellow-100 text-yellow-800'
       default:
         return 'bg-gray-100 text-gray-800'
     }
@@ -234,404 +273,388 @@ export default function ExamsPage() {
 
   const getTypeColor = (type: string) => {
     switch (type) {
-      case 'midterm':
-        return 'bg-yellow-100 text-yellow-800'
-      case 'final':
+      case 'internal':
+        return 'bg-purple-100 text-purple-800'
+      case 'external':
         return 'bg-red-100 text-red-800'
-      case 'quiz':
-        return 'bg-blue-100 text-blue-800'
       case 'assignment':
+        return 'bg-blue-100 text-blue-800'
+      case 'quiz':
         return 'bg-green-100 text-green-800'
+      case 'project':
+        return 'bg-orange-100 text-orange-800'
       default:
         return 'bg-gray-100 text-gray-800'
     }
   }
 
-  const filteredExams = useMemo(() => {
-    return exams.filter(exam => {
-      const matchesSearch = !searchTerm || 
-        exam.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        exam.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        exam.subject_name.toLowerCase().includes(searchTerm.toLowerCase())
-      
-      const matchesType = !selectedType || exam.exam_type === selectedType
-      const matchesStatus = !selectedStatus || exam.status === selectedStatus
-      const matchesSubject = !selectedSubject || exam.subject_id.toString() === selectedSubject
-      
-      return matchesSearch && matchesType && matchesStatus && matchesSubject
-    })
-  }, [exams, searchTerm, selectedType, selectedStatus, selectedSubject])
-
-  const canCreate = user?.role === 'admin' || user?.role === 'hod' || user?.role === 'teacher'
-
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-96">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      <div className="flex items-center justify-center h-64">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
       </div>
     )
   }
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      {/* Header */}
+      <div className="flex justify-between items-center">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900">Exams</h2>
-          <p className="text-gray-600">Manage and monitor all exams with smart creation tools</p>
+          <h1 className="text-3xl font-bold text-gray-900">Exam Management</h1>
+          <p className="text-gray-600">Manage exams and their configurations</p>
         </div>
-        {canCreate && (
-          <div className="flex gap-2">
-            <Button
-              onClick={() => setShowTemplates(true)}
-              variant="outline"
-              className="flex items-center gap-2"
-            >
-              <FileText className="h-4 w-4" />
-              Templates
-            </Button>
-            <Button
-              onClick={() => setShowSmartCreate(true)}
-              className="flex items-center gap-2"
-            >
-              <Zap className="h-4 w-4" />
-              Smart Create
-            </Button>
-            <Link href="/dashboard/exams/create">
-              <Button variant="outline">
-                <Plus className="h-4 w-4 mr-2" />
-                Manual Create
-              </Button>
-            </Link>
-          </div>
-        )}
+        <div className="flex space-x-2">
+          <button
+            onClick={loadData}
+            className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+          >
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Refresh
+          </button>
+          <button
+            onClick={exportData}
+            className="flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+          >
+            <Download className="h-4 w-4 mr-2" />
+            Export
+          </button>
+          <button
+            onClick={() => setShowEnhancedForm(true)}
+            className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+          >
+            <Plus className="h-4 w-4 mr-2" />
+            Create Exam
+          </button>
+        </div>
       </div>
 
-      {/* Search and Filters */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Search & Filter</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex gap-4 items-end">
-            <div className="flex-1">
-              <label className="block text-sm font-medium text-gray-700 mb-1">Search</label>
-              <Input
-                placeholder="Search exams..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Type</label>
-              <select
-                value={selectedType}
-                onChange={(e) => setSelectedType(e.target.value)}
-                className="w-32 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="">All Types</option>
-                <option value="midterm">Midterm</option>
-                <option value="final">Final</option>
-                <option value="quiz">Quiz</option>
-                <option value="assignment">Assignment</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
-              <select
-                value={selectedStatus}
-                onChange={(e) => setSelectedStatus(e.target.value)}
-                className="w-32 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="">All Status</option>
-                <option value="draft">Draft</option>
-                <option value="published">Published</option>
-                <option value="active">Active</option>
-                <option value="completed">Completed</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Subject</label>
-              <select
-                value={selectedSubject}
-                onChange={(e) => setSelectedSubject(e.target.value)}
-                className="w-48 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="">All Subjects</option>
-                {subjects && Array.isArray(subjects) && subjects.map((subject: any) => (
-                  <option key={subject.id} value={subject.id}>
-                    {subject.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <Button onClick={handleSearch}>
-              <Search className="h-4 w-4 mr-2" />
-              Search
-            </Button>
+      {/* Error Message */}
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+          <div className="flex items-center">
+            <AlertCircle className="h-5 w-5 text-red-500 mr-2" />
+            <p className="text-red-600">{error}</p>
           </div>
-        </CardContent>
-      </Card>
-
-      {/* Exams Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {filteredExams && Array.isArray(filteredExams) && filteredExams.map((exam) => (
-          <Card key={exam.id} className="hover:shadow-md transition-shadow">
-            <CardHeader>
-              <div className="flex items-start justify-between">
-                <div className="flex-1">
-                  <CardTitle className="text-lg">{exam.title}</CardTitle>
-                  <p className="text-sm text-gray-600 mt-1">{exam.description}</p>
-                </div>
-                <div className="flex gap-1">
-                  <Button variant="ghost" size="sm">
-                    <Eye className="h-4 w-4" />
-                  </Button>
-                  <Button variant="ghost" size="sm">
-                    <Edit className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => handleDelete(exam.id)}
-                    className="text-red-600 hover:text-red-700"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-center gap-2">
-                <Badge className={getTypeColor(exam.exam_type)}>
-                  {exam.exam_type}
-                </Badge>
-                <Badge className={getStatusColor(exam.status)}>
-                  {exam.status}
-                </Badge>
-              </div>
-
-              <div className="space-y-2 text-sm text-gray-600">
-                <div className="flex items-center gap-2">
-                  <BookOpen className="h-4 w-4" />
-                  <span>{exam.subject_name} - {exam.class_name}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Calendar className="h-4 w-4" />
-                  <span>{new Date(exam.exam_date).toLocaleDateString()}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Clock className="h-4 w-4" />
-                  <span>{exam.duration_minutes} minutes</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Users className="h-4 w-4" />
-                  <span>{exam.sections_count} sections</span>
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between pt-2 border-t">
-                <div className="text-sm">
-                  <span className="font-medium">{exam.total_marks}</span> marks
-                </div>
-                {exam.status === 'draft' && (
-                  <Button
-                    size="sm"
-                    onClick={() => handlePublish(exam.id)}
-                    className="bg-green-600 hover:bg-green-700"
-                  >
-                    <Play className="h-4 w-4 mr-1" />
-                    Publish
-                  </Button>
-                )}
-                {exam.status === 'published' && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="text-green-600 border-green-600"
-                  >
-                    <Pause className="h-4 w-4 mr-1" />
-                    Active
-                  </Button>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-
-      {filteredExams && Array.isArray(filteredExams) && filteredExams.length === 0 && !loading && (
-        <div className="text-center py-12">
-          <BookOpen className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-gray-900 mb-2">No exams found</h3>
-          <p className="text-gray-600">Get started by creating your first exam.</p>
         </div>
       )}
 
-      {/* Smart Exam Creation Modal */}
-      {showSmartCreate && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white p-6 rounded-lg w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-            <h2 className="text-xl font-bold mb-4">Smart Exam Creation</h2>
-            <form onSubmit={handleSmartCreate} className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium mb-1">Exam Title</label>
-                  <input
-                    type="text"
-                    value={smartFormData.title}
-                    onChange={(e) => setSmartFormData(prev => ({...prev, title: e.target.value}))}
-                    className="w-full px-3 py-2 border rounded-md"
-                    placeholder="e.g., Midterm Exam - Data Structures"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Exam Type</label>
+      {/* Filters */}
+      <div className="bg-white rounded-lg shadow p-4">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Subject</label>
+            <select
+              value={filterSubject || ''}
+              onChange={(e) => setFilterSubject(Number(e.target.value) || null)}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2"
+            >
+              <option value="">All Subjects</option>
+              {subjects.map((subject) => (
+                <option key={subject.id} value={subject.id}>{subject.name}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Class</label>
+            <select
+              value={filterClass || ''}
+              onChange={(e) => setFilterClass(Number(e.target.value) || null)}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2"
+            >
+              <option value="">All Classes</option>
+              {classes.map((cls) => (
+                <option key={cls.id} value={cls.id}>{cls.name}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+            <select
+              value={filterStatus || ''}
+              onChange={(e) => setFilterStatus(e.target.value || null)}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2"
+            >
+              <option value="">All Statuses</option>
+              {examStatuses.map((status) => (
+                <option key={status.value} value={status.value}>{status.label}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Search</label>
+            <div className="relative">
+              <Search className="h-4 w-4 absolute left-3 top-3 text-gray-400" />
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="Search exams..."
+                className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg"
+              />
+            </div>
+          </div>
+          <div className="flex items-end">
+            <button
+              onClick={loadData}
+              className="w-full flex items-center justify-center px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700"
+            >
+              <Filter className="h-4 w-4 mr-2" />
+              Apply Filters
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Exams Table */}
+      <div className="bg-white rounded-lg shadow overflow-hidden">
+        <table className="min-w-full divide-y divide-gray-200">
+          <thead className="bg-gray-50">
+            <tr>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Exam</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Subject</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Class</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Details</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+            </tr>
+          </thead>
+          <tbody className="bg-white divide-y divide-gray-200">
+            {exams.map((exam) => (
+              <tr key={exam.id}>
+                <td className="px-6 py-4 whitespace-nowrap">
+                  <div className="flex items-center">
+                    <Award className="h-5 w-5 text-blue-500 mr-2" />
+                    <div>
+                      <div className="text-sm font-medium text-gray-900">{exam.title}</div>
+                      <div className="text-sm text-gray-500">{exam.description || 'No description'}</div>
+                    </div>
+                  </div>
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                  <div className="flex items-center">
+                    <BookOpen className="h-4 w-4 mr-1" />
+                    {exam.subject_name || 'N/A'}
+                  </div>
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                  <div className="flex items-center">
+                    <Users className="h-4 w-4 mr-1" />
+                    {exam.class_name || 'N/A'}
+                  </div>
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                  <span className={`px-2 py-1 text-xs font-medium rounded-full ${getTypeColor(exam.exam_type)}`}>
+                    {exam.exam_type}
+                  </span>
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                   <select
-                    value={smartFormData.exam_type}
-                    onChange={(e) => setSmartFormData(prev => ({...prev, exam_type: e.target.value}))}
-                    className="w-full px-3 py-2 border rounded-md"
+                    value={exam.status}
+                    onChange={(e) => handleStatusChange(exam, e.target.value)}
+                    className={`px-2 py-1 text-xs font-medium rounded-full border-0 ${getStatusColor(exam.status)}`}
                   >
-                    <option value="internal">Internal</option>
-                    <option value="external">External</option>
-                    <option value="quiz">Quiz</option>
-                    <option value="assignment">Assignment</option>
-                    <option value="project">Project</option>
+                    {examStatuses.map((status) => (
+                      <option key={status.value} value={status.value}>{status.label}</option>
+                    ))}
                   </select>
-                </div>
-              </div>
-              
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                  <div className="text-xs">
+                    <div className="flex items-center">
+                      <Target className="h-3 w-3 mr-1" />
+                      {exam.total_marks} marks
+                    </div>
+                    <div className="flex items-center">
+                      <Clock className="h-3 w-3 mr-1" />
+                      {exam.duration_minutes} min
+                    </div>
+                    {exam.exam_date && (
+                      <div className="flex items-center">
+                        <Calendar className="h-3 w-3 mr-1" />
+                        {new Date(exam.exam_date).toLocaleDateString()}
+                      </div>
+                    )}
+                  </div>
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                  <div className="flex space-x-2">
+                    <button
+                      onClick={() => handleEdit(exam)}
+                      className="text-blue-600 hover:text-blue-900"
+                    >
+                      <Edit className="h-4 w-4" />
+                    </button>
+                    <button
+                      onClick={() => handleDelete(exam.id)}
+                      className="text-red-600 hover:text-red-900"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Enhanced Form Modal */}
+      {showEnhancedForm && (
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto z-50">
+          <div className="relative">
+            <EnhancedExamCreationForm
+              examId={editingExam?.id}
+              onSave={(exam) => {
+                setShowEnhancedForm(false)
+                setEditingExam(null)
+                loadData()
+              }}
+              onCancel={() => {
+                setShowEnhancedForm(false)
+                setEditingExam(null)
+              }}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Simple Form Modal */}
+      {showForm && (
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">
+              {editingExam ? 'Edit Exam' : 'Add New Exam'}
+            </h3>
+            <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium mb-1">Description</label>
-                <textarea
-                  value={smartFormData.description}
-                  onChange={(e) => setSmartFormData(prev => ({...prev, description: e.target.value}))}
-                  className="w-full px-3 py-2 border rounded-md"
-                  rows={3}
-                  placeholder="Exam description and instructions..."
+                <label className="block text-sm font-medium text-gray-700">Exam Title</label>
+                <input
+                  type="text"
+                  placeholder="Mid-term Examination"
+                  value={formData.title}
+                  onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                  className="mt-1 block w-full border border-gray-300 rounded-lg px-3 py-2"
+                  required
                 />
               </div>
-
-              <div className="grid grid-cols-3 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Description</label>
+                <textarea
+                  placeholder="Exam description..."
+                  value={formData.description}
+                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                  className="mt-1 block w-full border border-gray-300 rounded-lg px-3 py-2"
+                  rows={3}
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium mb-1">Subject</label>
+                  <label className="block text-sm font-medium text-gray-700">Subject</label>
                   <select
-                    value={smartFormData.subject_id}
-                    onChange={(e) => setSmartFormData(prev => ({...prev, subject_id: parseInt(e.target.value)}))}
-                    className="w-full px-3 py-2 border rounded-md"
+                    value={formData.subject_id}
+                    onChange={(e) => setFormData({ ...formData, subject_id: Number(e.target.value) })}
+                    className="mt-1 block w-full border border-gray-300 rounded-lg px-3 py-2"
                     required
                   >
                     <option value={0}>Select Subject</option>
-                    {subjects.map(subject => (
-                      <option key={subject.id} value={subject.id}>
-                        {subject.name} ({subject.code})
-                      </option>
+                    {subjects.map((subject) => (
+                      <option key={subject.id} value={subject.id}>{subject.name}</option>
                     ))}
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium mb-1">Class</label>
+                  <label className="block text-sm font-medium text-gray-700">Class</label>
                   <select
-                    value={smartFormData.class_id}
-                    onChange={(e) => setSmartFormData(prev => ({...prev, class_id: parseInt(e.target.value)}))}
-                    className="w-full px-3 py-2 border rounded-md"
+                    value={formData.class_id}
+                    onChange={(e) => setFormData({ ...formData, class_id: Number(e.target.value) })}
+                    className="mt-1 block w-full border border-gray-300 rounded-lg px-3 py-2"
                     required
                   >
                     <option value={0}>Select Class</option>
-                    {classes.map(cls => (
-                      <option key={cls.id} value={cls.id}>
-                        {cls.name}
-                      </option>
+                    {classes.map((cls) => (
+                      <option key={cls.id} value={cls.id}>{cls.name}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Exam Type</label>
+                  <select
+                    value={formData.exam_type}
+                    onChange={(e) => setFormData({ ...formData, exam_type: e.target.value })}
+                    className="mt-1 block w-full border border-gray-300 rounded-lg px-3 py-2"
+                    required
+                  >
+                    {examTypes.map((type) => (
+                      <option key={type.value} value={type.value}>{type.label}</option>
                     ))}
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium mb-1">Duration (minutes)</label>
+                  <label className="block text-sm font-medium text-gray-700">Duration (minutes)</label>
                   <input
                     type="number"
-                    value={smartFormData.duration_minutes}
-                    onChange={(e) => setSmartFormData(prev => ({...prev, duration_minutes: parseInt(e.target.value)}))}
-                    className="w-full px-3 py-2 border rounded-md"
                     min="30"
-                    max="480"
+                    value={formData.duration_minutes}
+                    onChange={(e) => setFormData({ ...formData, duration_minutes: Number(e.target.value) })}
+                    className="mt-1 block w-full border border-gray-300 rounded-lg px-3 py-2"
+                    required
                   />
                 </div>
               </div>
-
-              <div className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  id="auto_generate"
-                  checked={smartFormData.auto_generate_questions}
-                  onChange={(e) => setSmartFormData(prev => ({...prev, auto_generate_questions: e.target.checked}))}
-                  className="rounded"
-                />
-                <label htmlFor="auto_generate" className="text-sm font-medium">
-                  Auto-generate smart sections based on exam type
-                </label>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Exam Date</label>
+                  <input
+                    type="date"
+                    value={formData.exam_date}
+                    onChange={(e) => setFormData({ ...formData, exam_date: e.target.value })}
+                    className="mt-1 block w-full border border-gray-300 rounded-lg px-3 py-2"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Start Time</label>
+                  <input
+                    type="time"
+                    value={formData.start_time}
+                    onChange={(e) => setFormData({ ...formData, start_time: e.target.value })}
+                    className="mt-1 block w-full border border-gray-300 rounded-lg px-3 py-2"
+                  />
+                </div>
               </div>
-
-              <div className="flex gap-2">
-                <button
-                  type="submit"
-                  className="bg-primary text-primary-foreground px-4 py-2 rounded-md hover:bg-primary/90"
-                >
-                  Create Smart Exam
-                </button>
+              <div className="flex justify-end space-x-2">
                 <button
                   type="button"
-                  onClick={() => setShowSmartCreate(false)}
-                  className="bg-gray-500 text-white px-4 py-2 rounded-md hover:bg-gray-600"
+                  onClick={() => {
+                    setShowForm(false)
+                    setEditingExam(null)
+                    setFormData({
+                      title: '',
+                      description: '',
+                      subject_id: 0,
+                      class_id: 0,
+                      exam_type: 'internal',
+                      duration_minutes: 180,
+                      exam_date: '',
+                      start_time: '',
+                      end_time: ''
+                    })
+                  }}
+                  className="px-4 py-2 text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50"
                 >
                   Cancel
                 </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                >
+                  {editingExam ? 'Update' : 'Create'}
+                </button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
-
-      {/* Templates Modal */}
-      {showTemplates && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white p-6 rounded-lg w-full max-w-4xl max-h-[90vh] overflow-y-auto">
-            <h2 className="text-xl font-bold mb-4">Exam Templates</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {templates.map((template, index) => (
-                <div key={index} className="border rounded-lg p-4 hover:shadow-md transition-shadow">
-                  <h3 className="font-semibold text-lg mb-2">{template.name}</h3>
-                  <p className="text-gray-600 text-sm mb-3">{template.description}</p>
-                  <div className="space-y-2 text-sm">
-                    <div className="flex justify-between">
-                      <span>Type:</span>
-                      <span className="font-medium">{template.exam_type}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Duration:</span>
-                      <span className="font-medium">{template.duration_minutes} min</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Sections:</span>
-                      <span className="font-medium">{template.sections.length}</span>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => handleTemplateSelect(template)}
-                    className="w-full mt-4 bg-primary text-primary-foreground px-4 py-2 rounded-md hover:bg-primary/90"
-                  >
-                    Use Template
-                  </button>
-                </div>
-              ))}
-            </div>
-            <div className="flex justify-end mt-6">
-              <button
-                onClick={() => setShowTemplates(false)}
-                className="bg-gray-500 text-white px-4 py-2 rounded-md hover:bg-gray-600"
-              >
-                Close
-              </button>
-            </div>
           </div>
         </div>
       )}

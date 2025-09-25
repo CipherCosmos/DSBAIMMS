@@ -1,7 +1,7 @@
 'use client'
 
 import { useAuth } from '@/hooks/useAuth'
-import { AdminDashboard } from '@/components/dashboard/admin-dashboard'
+import { EnhancedAdminDashboard } from '@/components/dashboard/enhanced-admin-dashboard'
 import { HODDashboard } from '@/components/dashboard/hod-dashboard'
 import { TeacherDashboard } from '@/components/dashboard/teacher-dashboard'
 import { StudentDashboard } from '@/components/dashboard/student-dashboard'
@@ -12,8 +12,8 @@ export default function DashboardPage() {
   if (!user) return null
 
   switch (user.role) {
-    case 'admin':
-      return <AdminDashboard />
+      case 'admin':
+        return <EnhancedAdminDashboard />
     case 'hod':
       return <HODDashboard />
     case 'teacher':

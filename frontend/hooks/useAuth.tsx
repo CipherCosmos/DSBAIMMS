@@ -32,16 +32,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const initAuth = async () => {
       const token = localStorage.getItem('access_token')
+      console.log('Initializing auth, token exists:', !!token)
       
       if (token) {
         try {
-          const userData = await apiClient.getCurrentUser()
-          setUser(userData)
-        } catch (error) {
-          localStorage.removeItem('access_token')
-          localStorage.removeItem('refresh_token')
+          console.log('Getting current user with token...')
+          const response = await apiClient.getCurrentUser()
+          console.log('Current user data received:', response.data)
+          setUser(response.data)
+        } catch (error: any) {
+          console.error('Failed to get current user:', error)
+          // Only clear tokens if it's a 401 error (unauthorized)
+          // Other errors (network, 500, etc.) should not clear tokens
+          if (error.response?.status === 401) {
+            console.log('401 error, clearing tokens')
+            localStorage.removeItem('access_token')
+            localStorage.removeItem('refresh_token')
+          }
         }
       }
+      console.log('Auth initialization complete, setting loading to false')
       setIsLoading(false)
     }
 
@@ -50,11 +60,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = async (_username: string, _password: string) => {
     try {
+      console.log('Attempting login for user:', _username)
       const response = await apiClient.login(_username, _password)
-      localStorage.setItem('access_token', response.access_token)
-      localStorage.setItem('refresh_token', response.refresh_token)
-      setUser(response.user)
+      console.log('Login successful, setting tokens and user data')
+      localStorage.setItem('access_token', response.data.access_token)
+      localStorage.setItem('refresh_token', response.data.refresh_token)
+      setUser(response.data.user)
+      console.log('User set in context:', response.data.user)
     } catch (error: any) {
+      console.error('Login failed:', error)
       throw new Error(error.detail || 'Login failed')
     }
   }

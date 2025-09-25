@@ -14,6 +14,7 @@
     "install-services": "cd services/auth && pip install -r requirements.txt"
   },
   "dependencies": {
+    "@tanstack/react-query": "^5.90.2",
     "concurrently": "^8.2.2"
   },
   "devDependencies": {

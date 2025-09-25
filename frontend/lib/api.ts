@@ -5,14 +5,47 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 class ApiClient {
   private client = axios.create({
     baseURL: API_BASE_URL,
-    timeout: 10000,
+    timeout: 30000, // Increased timeout to 30 seconds
   })
+
+  // Generic HTTP methods
+  async get(url: string, config?: any) {
+    const token = localStorage.getItem('access_token')
+    if (token) {
+      this.client.defaults.headers.common['Authorization'] = `Bearer ${token}`
+    }
+    return this.client.get(url, config)
+  }
+
+  async post(url: string, data?: any, config?: any) {
+    const token = localStorage.getItem('access_token')
+    if (token) {
+      this.client.defaults.headers.common['Authorization'] = `Bearer ${token}`
+    }
+    return this.client.post(url, data, config)
+  }
+
+  async put(url: string, data?: any, config?: any) {
+    const token = localStorage.getItem('access_token')
+    if (token) {
+      this.client.defaults.headers.common['Authorization'] = `Bearer ${token}`
+    }
+    return this.client.put(url, data, config)
+  }
+
+  async delete(url: string, config?: any) {
+    const token = localStorage.getItem('access_token')
+    if (token) {
+      this.client.defaults.headers.common['Authorization'] = `Bearer ${token}`
+    }
+    return this.client.delete(url, config)
+  }
 
   // Helper method for direct service calls
   private async directServiceCall(serviceUrl: string, method: string, endpoint: string, data?: any, params?: any) {
     const directClient = axios.create({
       baseURL: serviceUrl,
-      timeout: 10000,
+      timeout: 30000, // Increased timeout to 30 seconds
     })
     
     // Add auth token
@@ -23,6 +56,89 @@ class ApiClient {
     
     const response = await directClient[method](endpoint, data, { params })
     return response.data
+  }
+
+  // Classes Service
+  async getClasses(params?: any) {
+    return this.get('/api/classes', { params })
+  }
+
+  async getClass(classId: number) {
+    return this.get(`/api/classes/${classId}`)
+  }
+
+  async createClass(classData: any) {
+    return this.post('/api/classes', classData)
+  }
+
+  async updateClass(classId: number, classData: any) {
+    return this.put(`/api/classes/${classId}`, classData)
+  }
+
+  async deleteClass(classId: number) {
+    return this.delete(`/api/classes/${classId}`)
+  }
+
+  async getClassStudents(classId: number, params?: any) {
+    return this.client.get(`/api/classes/${classId}/students`, { params })
+  }
+
+  async getClassAnalytics(params?: any) {
+    return this.client.get('/api/classes/analytics', { params })
+  }
+
+  // Subjects Service
+  async getSubjects(params?: any) {
+    return this.client.get('/api/subjects', { params })
+  }
+
+  async getSubject(subjectId: number) {
+    return this.client.get(`/api/subjects/${subjectId}`)
+  }
+
+  async createSubject(subjectData: any) {
+    return this.client.post('/api/subjects', subjectData)
+  }
+
+  async updateSubject(subjectId: number, subjectData: any) {
+    return this.client.put(`/api/subjects/${subjectId}`, subjectData)
+  }
+
+  async deleteSubject(subjectId: number) {
+    return this.client.delete(`/api/subjects/${subjectId}`)
+  }
+
+  async getSubjectAnalytics(params?: any) {
+    return this.client.get('/api/subjects/analytics', { params })
+  }
+
+  // Semesters Service
+  async getSemesters(params?: any) {
+    return this.client.get('/api/semesters', { params })
+  }
+
+  async getSemester(semesterId: number) {
+    return this.client.get(`/api/semesters/${semesterId}`)
+  }
+
+  async createSemester(semesterData: any) {
+    return this.client.post('/api/semesters', semesterData)
+  }
+
+  async updateSemester(semesterId: number, semesterData: any) {
+    return this.client.put(`/api/semesters/${semesterId}`, semesterData)
+  }
+
+  async deleteSemester(semesterId: number) {
+    return this.client.delete(`/api/semesters/${semesterId}`)
+  }
+
+  async getSemesterClasses(semesterId: number, params?: any) {
+    return this.client.get(`/api/semesters/${semesterId}/classes`, { params })
+  }
+
+  async getSemesterAnalytics(params?: any) {
+    return this.client.get('/api/semesters/analytics', { params })
   }
 
   constructor() {
@@ -40,12 +156,25 @@ class ApiClient {
 
     // Response interceptor to handle errors
     this.client.interceptors.response.use(
-      (response) => response.data,
+      (response) => {
+        // Don't extract data from auth endpoints to preserve full response structure
+        if (response.config?.url?.includes('/api/auth/')) {
+          return response
+        }
+        return response.data
+      },
       (error) => {
         if (error.response?.status === 401) {
-          localStorage.removeItem('access_token')
-          localStorage.removeItem('refresh_token')
-          window.location.href = '/login'
+          // Only redirect to login if we're not already on the login page
+          // and if the request was not for getting current user (to avoid redirect loops)
+          const isLoginPage = window.location.pathname === '/login'
+          const isGetCurrentUser = error.config?.url?.includes('/api/auth/me')
+          
+          if (!isLoginPage && !isGetCurrentUser) {
+            localStorage.removeItem('access_token')
+            localStorage.removeItem('refresh_token')
+            window.location.href = '/login'
+          }
         }
         // Return the full error object to preserve structure
         return Promise.reject(error)
@@ -55,15 +184,15 @@ class ApiClient {
 
   // ==================== AUTH SERVICE ====================
   async login(username: string, password: string) {
-    return this.client.post('/api/auth/login', { username, password })
+    return this.post('/api/auth/login', { username, password })
   }
 
   async getCurrentUser() {
-    return this.client.get('/api/auth/me')
+    return this.get('/api/auth/me')
   }
 
   async logout() {
-    return this.client.post('/api/auth/logout')
+    return this.post('/api/auth/logout')
   }
 
   async changePassword(passwordData: { current_password: string; new_password: string }) {
@@ -72,31 +201,31 @@ class ApiClient {
 
   // ==================== USER SERVICE ====================
   async getUsers(params?: any) {
-    return this.client.get('/api/users', { params })
+    return this.get('/api/users', { params })
   }
 
   async getUser(id: number) {
-    return this.client.get(`/api/users/${id}`)
+    return this.get(`/api/users/${id}`)
   }
 
   async createUser(userData: any) {
-    return this.client.post('/api/users', userData)
+    return this.post('/api/users', userData)
   }
 
   async updateUser(id: number, userData: any) {
-    return this.client.put(`/api/users/${id}`, userData)
+    return this.put(`/api/users/${id}`, userData)
   }
 
   async deleteUser(id: number) {
-    return this.client.delete(`/api/users/${id}`)
+    return this.delete(`/api/users/${id}`)
   }
 
   async bulkUpdateUsers(userIds: number[], updateData: any) {
-    return this.client.post('/api/users/bulk-update', { user_ids: userIds, update_data: updateData })
+    return this.post('/api/users/bulk-update', { user_ids: userIds, update_data: updateData })
   }
 
   async bulkDeleteUsers(userIds: number[]) {
-    return this.client.post('/api/users/bulk-delete', { user_ids: userIds })
+    return this.post('/api/users/bulk-delete', { user_ids: userIds })
   }
 
   async resetUserPassword(userId: number) {
@@ -115,7 +244,7 @@ class ApiClient {
     return this.client.get('/api/users/available-roles')
   }
 
-  async getSubjects(departmentId?: number) {
+  async getUserSubjects(departmentId?: number) {
     return this.client.get('/api/users/subjects', { params: { department_id: departmentId } })
   }
 
@@ -167,47 +296,58 @@ class ApiClient {
     return this.client.get('/api/departments/available-hods')
   }
 
-  // ==================== CLASS SERVICE ====================
-  async getClasses(params?: any) {
-    return this.client.get('/api/classes', { params })
+  // ==================== SEMESTER SERVICE ====================
+  async getSemesters(params?: any) {
+    return this.client.get('/api/semesters', { params })
   }
 
-  async getClass(id: number) {
-    return this.client.get(`/api/classes/${id}`)
+  async getSemester(id: number) {
+    return this.client.get(`/api/semesters/${id}`)
   }
 
-  async createClass(classData: any) {
-    return this.client.post('/api/classes', classData)
+  async createSemester(semesterData: any) {
+    return this.client.post('/api/semesters', semesterData)
   }
 
-  async updateClass(id: number, classData: any) {
-    return this.client.put(`/api/classes/${id}`, classData)
+  async updateSemester(id: number, semesterData: any) {
+    return this.client.put(`/api/semesters/${id}`, semesterData)
   }
 
-  async deleteClass(id: number) {
-    return this.client.delete(`/api/classes/${id}`)
+  async deleteSemester(id: number) {
+    return this.client.delete(`/api/semesters/${id}`)
   }
 
-  // ==================== SUBJECT SERVICE ====================
-  async getSubjects(params?: any) {
-    return this.client.get('/api/subjects', { params })
+  async promoteStudents(semesterId: number, nextSemesterId: number) {
+    return this.client.post(`/api/semesters/${semesterId}/promote-students`, {
+      next_semester_id: nextSemesterId
+    })
   }
 
-  async getSubject(id: number) {
-    return this.client.get(`/api/subjects/${id}`)
+  async getPromotionStatus(semesterId: number) {
+    return this.client.get(`/api/semesters/${semesterId}/promotion-status`)
   }
 
-  async createSubject(subjectData: any) {
-    return this.client.post('/api/subjects', subjectData)
+  // ==================== STUDENT SEMESTER ENROLLMENT SERVICE ====================
+  async getSemesterEnrollments(params?: any) {
+    return this.client.get('/api/semester-enrollments', { params })
   }
 
-  async updateSubject(id: number, subjectData: any) {
-    return this.client.put(`/api/subjects/${id}`, subjectData)
+  async getSemesterEnrollment(id: number) {
+    return this.client.get(`/api/semester-enrollments/${id}`)
   }
 
-  async deleteSubject(id: number) {
-    return this.client.delete(`/api/subjects/${id}`)
+  async createSemesterEnrollment(enrollmentData: any) {
+    return this.client.post('/api/semester-enrollments', enrollmentData)
   }
+
+  async updateSemesterEnrollment(id: number, enrollmentData: any) {
+    return this.client.put(`/api/semester-enrollments/${id}`, enrollmentData)
+  }
+
+  async deleteSemesterEnrollment(id: number) {
+    return this.client.delete(`/api/semester-enrollments/${id}`)
+  }
+
 
   // ==================== PO SERVICE ====================
   async getPOs(params?: any) {
@@ -545,6 +685,18 @@ class ApiClient {
     return response
   }
 
+  async getUnreadNotificationCount() {
+    return this.client.get('/api/notifications/unread-count')
+  }
+
+  async markNotificationAsRead(id: number) {
+    return this.client.put(`/api/notifications/${id}`, { is_read: true })
+  }
+
+  async markAllNotificationsAsRead() {
+    return this.client.post('/api/notifications/mark-all-read')
+  }
+
   async markAllRead() {
     return this.client.post('/api/notifications/mark-all-read')
   }
@@ -617,6 +769,10 @@ class ApiClient {
 
   async getBankQuestions(bankId: number, params?: any) {
     return this.client.get(`/api/questionbank/${bankId}/questions`, { params })
+  }
+
+  async getQuestionBankQuestions(bankId: number) {
+    return this.client.get(`/api/questionbank/${bankId}/questions`)
   }
 
   async addQuestionToBank(bankId: number, questionId: number) {
@@ -813,6 +969,225 @@ class ApiClient {
 
   async getAuditLogs(params?: any) {
     return this.client.get('/api/monitoring/audit-logs', { params })
+  }
+
+  // ==================== ADVANCED ANALYTICS ====================
+  async getAttendancePerformanceCorrelation(params?: any) {
+    return this.client.get('/api/analytics/attendance-performance-correlation', { params })
+  }
+
+  async getExamWeightageAnalysis(params?: any) {
+    return this.client.get('/api/analytics/exam-weightage-analysis', { params })
+  }
+
+  async getResultCalculationRules(params?: any) {
+    return this.client.get('/api/analytics/result-calculation-rules', { params })
+  }
+
+  async getBloomTaxonomyAttainment(params?: any) {
+    return this.client.get('/api/analytics/bloom-taxonomy-attainment', { params })
+  }
+
+  // ==================== CLASSES SERVICE ====================
+  async getClasses(params?: any) {
+    return this.client.get('/api/classes', { params })
+  }
+
+  async getClass(id: number) {
+    return this.client.get(`/api/classes/${id}`)
+  }
+
+  async createClass(classData: any) {
+    return this.client.post('/api/classes', classData)
+  }
+
+  async updateClass(id: number, classData: any) {
+    return this.client.put(`/api/classes/${id}`, classData)
+  }
+
+  async deleteClass(id: number) {
+    return this.client.delete(`/api/classes/${id}`)
+  }
+
+  // ==================== SUBJECTS SERVICE ====================
+  async getSubjects(params?: any) {
+    return this.client.get('/api/subjects', { params })
+  }
+
+  async getSubject(id: number) {
+    return this.client.get(`/api/subjects/${id}`)
+  }
+
+  async createSubject(subjectData: any) {
+    return this.client.post('/api/subjects', subjectData)
+  }
+
+  async updateSubject(id: number, subjectData: any) {
+    return this.client.put(`/api/subjects/${id}`, subjectData)
+  }
+
+  async deleteSubject(id: number) {
+    return this.client.delete(`/api/subjects/${id}`)
+  }
+
+  // ==================== SEMESTERS SERVICE ====================
+  async getSemesters(params?: any) {
+    return this.client.get('/api/semesters', { params })
+  }
+
+  async getSemester(id: number) {
+    return this.client.get(`/api/semesters/${id}`)
+  }
+
+  async createSemester(semesterData: any) {
+    return this.client.post('/api/semesters', semesterData)
+  }
+
+  async updateSemester(id: number, semesterData: any) {
+    return this.client.put(`/api/semesters/${id}`, semesterData)
+  }
+
+  async deleteSemester(id: number) {
+    return this.client.delete(`/api/semesters/${id}`)
+  }
+
+  // ==================== ATTENDANCE SERVICE ====================
+  async getAttendanceRecords(params?: any) {
+    return this.client.get('/api/attendance', { params })
+  }
+
+  async getAttendanceRecord(id: number) {
+    return this.client.get(`/api/attendance/${id}`)
+  }
+
+  async createAttendanceRecord(attendanceData: any) {
+    return this.client.post('/api/attendance', attendanceData)
+  }
+
+  async updateAttendanceRecord(id: number, attendanceData: any) {
+    return this.client.put(`/api/attendance/${id}`, attendanceData)
+  }
+
+  async deleteAttendanceRecord(id: number) {
+    return this.client.delete(`/api/attendance/${id}`)
+  }
+
+  // ==================== PROMOTION SERVICE ====================
+  async getStudentsForPromotion(params?: any) {
+    return this.client.get('/api/promotion/students', { params })
+  }
+
+  async getPromotionBatches(params?: any) {
+    return this.client.get('/api/promotion/batches', { params })
+  }
+
+  async promoteStudents(promotionData: any) {
+    return this.client.post('/api/promotion/promote', promotionData)
+  }
+
+  // ==================== BULK OPERATIONS ====================
+  // Classes Bulk Operations
+  async bulkUpdateClasses(classIds: number[], updateData: any) {
+    return this.client.post('/api/classes/bulk-update', {
+      class_ids: classIds,
+      update_data: updateData
+    })
+  }
+
+  async bulkDeleteClasses(classIds: number[]) {
+    return this.client.post('/api/classes/bulk-delete', {
+      class_ids: classIds
+    })
+  }
+
+  // Subjects Bulk Operations
+  async bulkUpdateSubjects(subjectIds: number[], updateData: any) {
+    return this.client.post('/api/subjects/bulk-update', {
+      subject_ids: subjectIds,
+      update_data: updateData
+    })
+  }
+
+  async bulkDeleteSubjects(subjectIds: number[]) {
+    return this.client.post('/api/subjects/bulk-delete', {
+      subject_ids: subjectIds
+    })
+  }
+
+  // Semesters Bulk Operations
+  async bulkUpdateSemesters(semesterIds: number[], updateData: any) {
+    return this.client.post('/api/semesters/bulk-update', {
+      semester_ids: semesterIds,
+      update_data: updateData
+    })
+  }
+
+  async bulkDeleteSemesters(semesterIds: number[]) {
+    return this.client.post('/api/semesters/bulk-delete', {
+      semester_ids: semesterIds
+    })
+  }
+
+  // Attendance Bulk Operations
+  async bulkUpdateAttendance(attendanceIds: number[], updateData: any) {
+    return this.client.post('/api/attendance/bulk-update', {
+      attendance_ids: attendanceIds,
+      update_data: updateData
+    })
+  }
+
+  async bulkDeleteAttendance(attendanceIds: number[]) {
+    return this.client.post('/api/attendance/bulk-delete', {
+      attendance_ids: attendanceIds
+    })
+  }
+
+  // ==================== EXPORT FUNCTIONALITY ====================
+  // Classes Export
+  async exportClasses(format: 'csv' | 'pdf', params?: any) {
+    const queryParams = new URLSearchParams()
+    if (params?.department_id) queryParams.append('department_id', params.department_id.toString())
+    if (params?.semester_id) queryParams.append('semester_id', params.semester_id.toString())
+    
+    return this.client.get(`/api/classes/export/${format}?${queryParams}`, {
+      responseType: 'blob'
+    })
+  }
+
+  // Subjects Export
+  async exportSubjects(format: 'csv' | 'pdf', params?: any) {
+    const queryParams = new URLSearchParams()
+    if (params?.department_id) queryParams.append('department_id', params.department_id.toString())
+    if (params?.semester_id) queryParams.append('semester_id', params.semester_id.toString())
+    if (params?.teacher_id) queryParams.append('teacher_id', params.teacher_id.toString())
+    
+    return this.client.get(`/api/subjects/export/${format}?${queryParams}`, {
+      responseType: 'blob'
+    })
+  }
+
+  // Attendance Export
+  async exportAttendance(format: 'csv' | 'pdf', params?: any) {
+    const queryParams = new URLSearchParams()
+    if (params?.student_id) queryParams.append('student_id', params.student_id.toString())
+    if (params?.subject_id) queryParams.append('subject_id', params.subject_id.toString())
+    if (params?.class_id) queryParams.append('class_id', params.class_id.toString())
+    if (params?.start_date) queryParams.append('start_date', params.start_date)
+    if (params?.end_date) queryParams.append('end_date', params.end_date)
+    
+    return this.client.get(`/api/attendance/export/${format}?${queryParams}`, {
+      responseType: 'blob'
+    })
+  }
+
+  // Semesters Export
+  async exportSemesters(format: 'csv' | 'pdf', params?: any) {
+    const queryParams = new URLSearchParams()
+    if (params?.department_id) queryParams.append('department_id', params.department_id.toString())
+    
+    return this.client.get(`/api/semesters/export/${format}?${queryParams}`, {
+      responseType: 'blob'
+    })
   }
 
   // ==================== WEBSOCKET CONNECTIONS ====================

@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Plus, Search, BookOpen, Users, Calendar, Eye, Trash2, PlusCircle, X } from 'lucide-react';
+import { apiClient } from '@/lib/api';
 
 interface QuestionBank {
   id: number;
@@ -53,17 +54,14 @@ export default function QuestionBankManager({
   const fetchQuestionBanks = async () => {
     try {
       setLoading(true);
-      const params = new URLSearchParams();
-      if (departmentId) params.append('department_id', departmentId.toString());
-      if (subjectId) params.append('subject_id', subjectId.toString());
-      if (showPublicOnly) params.append('is_public', 'true');
-      if (filterPublic !== null) params.append('is_public', filterPublic.toString());
+      const params: any = {};
+      if (departmentId) params.department_id = departmentId;
+      if (subjectId) params.subject_id = subjectId;
+      if (showPublicOnly) params.is_public = true;
+      if (filterPublic !== null) params.is_public = filterPublic;
 
-      const response = await fetch(`/api/questionbank?${params}`);
-      if (response.ok) {
-        const data = await response.json();
-        setQuestionBanks(data);
-      }
+      const data = await apiClient.getQuestionBanks(params);
+      setQuestionBanks(data);
     } catch (error) {
       console.error('Failed to fetch question banks:', error);
     } finally {
@@ -73,11 +71,8 @@ export default function QuestionBankManager({
 
   const fetchBankQuestions = async (bankId: number) => {
     try {
-      const response = await fetch(`/api/questionbank/${bankId}/questions`);
-      if (response.ok) {
-        const data = await response.json();
-        setBankQuestions(data);
-      }
+      const data = await apiClient.getQuestionBankQuestions(bankId);
+      setBankQuestions(data);
     } catch (error) {
       console.error('Failed to fetch bank questions:', error);
     }
@@ -85,19 +80,9 @@ export default function QuestionBankManager({
 
   const createQuestionBank = async (bankData: Partial<QuestionBank>) => {
     try {
-      const response = await fetch('/api/questionbank', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(bankData),
-      });
-
-      if (response.ok) {
-        const newBank = await response.json();
-        setQuestionBanks(prev => [newBank, ...prev]);
-        setShowCreateModal(false);
-      }
+      const newBank = await apiClient.createQuestionBank(bankData);
+      setQuestionBanks(prev => [newBank, ...prev]);
+      setShowCreateModal(false);
     } catch (error) {
       console.error('Failed to create question bank:', error);
     }
@@ -107,13 +92,8 @@ export default function QuestionBankManager({
     if (!confirm('Are you sure you want to delete this question bank?')) return;
 
     try {
-      const response = await fetch(`/api/questionbank/${bankId}`, {
-        method: 'DELETE',
-      });
-
-      if (response.ok) {
-        setQuestionBanks(prev => prev.filter(bank => bank.id !== bankId));
-      }
+      await apiClient.deleteQuestionBank(bankId);
+      setQuestionBanks(prev => prev.filter(bank => bank.id !== bankId));
     } catch (error) {
       console.error('Failed to delete question bank:', error);
     }
@@ -121,18 +101,9 @@ export default function QuestionBankManager({
 
   const addQuestionToBank = async (bankId: number, questionId: number) => {
     try {
-      const response = await fetch(`/api/questionbank/${bankId}/questions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ question_id: questionId }),
-      });
-
-      if (response.ok) {
-        fetchBankQuestions(bankId);
-        fetchQuestionBanks(); // Refresh to update question count
-      }
+      await apiClient.addQuestionToBank(bankId, questionId);
+      fetchBankQuestions(bankId);
+      fetchQuestionBanks(); // Refresh to update question count
     } catch (error) {
       console.error('Failed to add question to bank:', error);
     }
@@ -140,14 +111,9 @@ export default function QuestionBankManager({
 
   const removeQuestionFromBank = async (bankId: number, questionId: number) => {
     try {
-      const response = await fetch(`/api/questionbank/${bankId}/questions/${questionId}`, {
-        method: 'DELETE',
-      });
-
-      if (response.ok) {
-        fetchBankQuestions(bankId);
-        fetchQuestionBanks(); // Refresh to update question count
-      }
+      await apiClient.removeQuestionFromBank(bankId, questionId);
+      fetchBankQuestions(bankId);
+      fetchQuestionBanks(); // Refresh to update question count
     } catch (error) {
       console.error('Failed to remove question from bank:', error);
     }

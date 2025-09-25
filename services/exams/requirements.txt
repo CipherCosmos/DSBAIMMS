@@ -10,3 +10,4 @@ redis==5.0.1
 kafka-python==2.0.2
 slowapi==0.1.9
 PyJWT==2.8.0
+pandas==2.1.4

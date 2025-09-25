@@ -556,7 +556,7 @@ async def create_exam_question(
     db: Session = Depends(get_db),
     current_user_id: int = Depends(RoleChecker(["admin", "hod", "teacher"]))
 ):
-    """Create a new question for an exam"""
+    """Create a new question for an exam with optional question support"""
     current_user = db.query(User).filter(User.id == current_user_id).first()
     
     # Check exam access
@@ -573,22 +573,21 @@ async def create_exam_question(
         if subject.department_id != current_user.department_id:
             raise HTTPException(status_code=403, detail="Access denied")
     
-    # Check if section exists
-    section = db.query(ExamSection).filter(ExamSection.id == question.section_id).first()
-    if not section or section.exam_id != exam_id:
-        raise HTTPException(status_code=404, detail="Section not found")
-    
     # Create question
     db_question = Question(
+        exam_id=exam_id,
         section_id=question.section_id,
-        question_number=question.question_number,
         question_text=question.question_text,
         question_type=question.question_type,
-        marks=question.marks,
-        co_id=question.co_id,
+        options=question.options,
+        correct_answer=question.correct_answer,
+        max_marks=question.max_marks,
         bloom_level=question.bloom_level,
         difficulty_level=question.difficulty_level,
-        created_by=current_user_id
+        co_id=question.co_id,
+        is_optional=question.is_optional,
+        parent_question_id=question.parent_question_id,
+        order=question.order
     )
     
     db.add(db_question)
@@ -597,11 +596,169 @@ async def create_exam_question(
     
     # Log audit
     log_audit(db, current_user_id, "CREATE", "Question", db_question.id, None, {
-        "question_text": question.question_text[:100],
-        "section_id": question.section_id
+        "question_text": question.question_text[:50] + "...",
+        "exam_id": exam_id,
+        "is_optional": question.is_optional
     })
     
     return db_question
+
+# Optional Question Auto-Calculation Logic
+@app.post("/{exam_id}/calculate-optional-marks")
+async def calculate_optional_marks(
+    exam_id: int,
+    student_id: int,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(RoleChecker(["admin", "hod", "teacher"]))
+):
+    """Calculate marks for optional questions using auto-best-attempt logic"""
+    current_user = db.query(User).filter(User.id == current_user_id).first()
+    
+    # Check exam access
+    exam = db.query(Exam).filter(Exam.id == exam_id).first()
+    if not exam:
+        raise HTTPException(status_code=404, detail="Exam not found")
+    
+    # Apply role-based access control
+    subject = db.query(Subject).filter(Subject.id == exam.subject_id).first()
+    if current_user.role == "teacher":
+        if subject.teacher_id != current_user_id:
+            raise HTTPException(status_code=403, detail="Access denied")
+    elif current_user.role == "hod":
+        if subject.department_id != current_user.department_id:
+            raise HTTPException(status_code=403, detail="Access denied")
+    
+    # Get all sections with optional questions
+    sections = db.query(ExamSection).filter(ExamSection.exam_id == exam_id).all()
+    calculation_results = []
+    
+    for section in sections:
+        # Get optional questions for this section
+        optional_questions = db.query(Question).filter(
+            Question.section_id == section.id,
+            Question.is_optional == True
+        ).all()
+        
+        if not optional_questions:
+            continue
+            
+        # Get student's marks for all optional questions in this section
+        student_marks = db.query(Mark).filter(
+            Mark.student_id == student_id,
+            Mark.question_id.in_([q.id for q in optional_questions])
+        ).all()
+        
+        # Group questions by marks value for auto-calculation
+        questions_by_marks = {}
+        for question in optional_questions:
+            marks_value = question.max_marks
+            if marks_value not in questions_by_marks:
+                questions_by_marks[marks_value] = []
+            questions_by_marks[marks_value].append(question)
+        
+        # Calculate best attempts for each marks group
+        for marks_value, questions in questions_by_marks.items():
+            # Get marks for this group
+            group_marks = [m for m in student_marks if m.question_id in [q.id for q in questions]]
+            
+            # Sort by marks obtained (descending) to get best attempts
+            group_marks.sort(key=lambda x: x.marks_obtained, reverse=True)
+            
+            # Determine how many questions to count based on section rules
+            questions_to_count = section.questions_to_attempt if hasattr(section, 'questions_to_attempt') else len(questions)
+            
+            # Take the best attempts
+            best_attempts = group_marks[:questions_to_count]
+            
+            # Calculate total marks for this group
+            total_marks = sum(mark.marks_obtained for mark in best_attempts)
+            
+            calculation_results.append({
+                "section_id": section.id,
+                "section_name": section.title,
+                "marks_value": marks_value,
+                "total_questions": len(questions),
+                "questions_to_count": questions_to_count,
+                "best_attempts": len(best_attempts),
+                "total_marks": total_marks,
+                "max_possible_marks": questions_to_count * marks_value
+            })
+    
+    return {
+        "exam_id": exam_id,
+        "student_id": student_id,
+        "calculation_results": calculation_results,
+        "total_optional_marks": sum(result["total_marks"] for result in calculation_results)
+    }
+
+@app.get("/{exam_id}/optional-questions-analysis")
+async def get_optional_questions_analysis(
+    exam_id: int,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(RoleChecker(["admin", "hod", "teacher"]))
+):
+    """Get analysis of optional questions performance"""
+    current_user = db.query(User).filter(User.id == current_user_id).first()
+    
+    # Check exam access
+    exam = db.query(Exam).filter(Exam.id == exam_id).first()
+    if not exam:
+        raise HTTPException(status_code=404, detail="Exam not found")
+    
+    # Apply role-based access control
+    subject = db.query(Subject).filter(Subject.id == exam.subject_id).first()
+    if current_user.role == "teacher":
+        if subject.teacher_id != current_user_id:
+            raise HTTPException(status_code=403, detail="Access denied")
+    elif current_user.role == "hod":
+        if subject.department_id != current_user.department_id:
+            raise HTTPException(status_code=403, detail="Access denied")
+    
+    # Get all optional questions
+    optional_questions = db.query(Question).join(ExamSection).filter(
+        ExamSection.exam_id == exam_id,
+        Question.is_optional == True
+    ).all()
+    
+    analysis_results = []
+    
+    for question in optional_questions:
+        # Get all marks for this question
+        marks = db.query(Mark).filter(Mark.question_id == question.id).all()
+        
+        if marks:
+            avg_marks = sum(mark.marks_obtained for mark in marks) / len(marks)
+            max_marks = question.max_marks
+            avg_percentage = (avg_marks / max_marks * 100) if max_marks > 0 else 0
+            
+            # Count how many students attempted this question
+            attempted_count = len(marks)
+            
+            # Get total students in the class
+            total_students = db.query(User).filter(
+                User.class_id == exam.class_id,
+                User.role == "student",
+                User.is_active == True
+            ).count()
+            
+            analysis_results.append({
+                "question_id": question.id,
+                "question_text": question.question_text[:100] + "..." if len(question.question_text) > 100 else question.question_text,
+                "max_marks": max_marks,
+                "avg_marks": round(avg_marks, 2),
+                "avg_percentage": round(avg_percentage, 2),
+                "attempted_count": attempted_count,
+                "total_students": total_students,
+                "attempt_rate": round((attempted_count / total_students * 100), 2) if total_students > 0 else 0,
+                "difficulty_level": question.difficulty_level.value if question.difficulty_level else "medium",
+                "bloom_level": question.bloom_level.value if question.bloom_level else "remember"
+            })
+    
+    return {
+        "exam_id": exam_id,
+        "total_optional_questions": len(optional_questions),
+        "analysis_results": analysis_results
+    }
 
 @app.put("/questions/{question_id}", response_model=QuestionResponse)
 async def update_exam_question(

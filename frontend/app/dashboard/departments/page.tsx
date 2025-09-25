@@ -6,6 +6,7 @@ import { apiClient } from '@/lib/api'
 import { Plus, Edit, Trash2, Users, GraduationCap, Calendar, Clock, BookOpen, UserCheck, Search, Filter, Download, Upload } from 'lucide-react'
 import Link from 'next/link'
 import { toast } from 'react-hot-toast'
+import { SYSTEM_CONFIG, hasPermission, getAcademicYearString } from '@/lib/config'
 
 // Utility function to extract error messages
 const getErrorMessage = (error: any, defaultMessage: string): string => {
@@ -88,11 +89,20 @@ export default function DepartmentsPage() {
   const [departments, setDepartments] = useState<Department[]>([])
   const [hods, setHODs] = useState<HOD[]>([])
   const [loading, setLoading] = useState(true)
+
+  // RBAC checks
+  const canCreate = user && hasPermission(user.role, 'create_departments')
+  const canUpdate = user && hasPermission(user.role, 'update_departments')
+  const canDelete = user && hasPermission(user.role, 'delete_departments')
+  const canViewAll = user && hasPermission(user.role, 'view_all_departments')
+  const canAssignHODs = user && hasPermission(user.role, 'assign_hods')
   const [showCreateForm, setShowCreateForm] = useState(false)
   const [showEditForm, setShowEditForm] = useState(false)
   const [editingDepartment, setEditingDepartment] = useState<Department | null>(null)
   const [selectedDepartments, setSelectedDepartments] = useState<number[]>([])
   const [showBulkActions, setShowBulkActions] = useState(false)
+  const [showBulkCreateForm, setShowBulkCreateForm] = useState(false)
+  const [showBulkUpdateForm, setShowBulkUpdateForm] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
   const [filterActive, setFilterActive] = useState<boolean | null>(null)
   const [sortBy, setSortBy] = useState<'name' | 'code' | 'created_at'>('name')
@@ -107,6 +117,12 @@ export default function DepartmentsPage() {
     semester_count: 8,
     current_semester: 1,
     is_active: true
+  })
+
+  const [bulkFormData, setBulkFormData] = useState({
+    departments: [
+      { name: '', code: '', description: '', duration_years: 4, hod_id: '', academic_year: new Date().getFullYear().toString(), semester_count: 8, current_semester: 1, is_active: true }
+    ]
   })
 
   useEffect(() => {
@@ -242,9 +258,77 @@ export default function DepartmentsPage() {
         setSelectedDepartments([])
         setShowBulkActions(false)
         loadDepartments()
-      } catch (error) {
+        toast.success('Departments deleted successfully')
+      } catch (error: any) {
         console.error('Error bulk deleting departments:', error)
+        const errorMessage = getErrorMessage(error, 'Failed to delete departments')
+        toast.error(errorMessage)
       }
+    }
+  }
+
+  const handleBulkCreate = async (departmentsData: any[]) => {
+    try {
+      await apiClient.bulkCreateDepartments(departmentsData)
+      setShowBulkActions(false)
+      loadDepartments()
+      toast.success('Departments created successfully')
+    } catch (error: any) {
+      console.error('Error bulk creating departments:', error)
+      const errorMessage = getErrorMessage(error, 'Failed to create departments')
+      toast.error(errorMessage)
+    }
+  }
+
+  const handleBulkUpdate = async (updates: any[]) => {
+    try {
+      await apiClient.bulkUpdateDepartments(updates)
+      setShowBulkActions(false)
+      loadDepartments()
+      toast.success('Departments updated successfully')
+    } catch (error: any) {
+      console.error('Error bulk updating departments:', error)
+      const errorMessage = getErrorMessage(error, 'Failed to update departments')
+      toast.error(errorMessage)
+    }
+  }
+
+  const handleBulkCreateSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    try {
+      const departmentsToCreate = bulkFormData.departments.map(dept => ({
+        ...dept,
+        hod_id: dept.hod_id ? parseInt(dept.hod_id) : undefined,
+        duration_years: parseInt(dept.duration_years.toString()),
+        semester_count: parseInt(dept.semester_count.toString()),
+        current_semester: parseInt(dept.current_semester.toString())
+      }))
+      
+      await handleBulkCreate(departmentsToCreate)
+      setShowBulkCreateForm(false)
+      setBulkFormData({
+        departments: [
+          { name: '', code: '', description: '', duration_years: 4, hod_id: '', academic_year: new Date().getFullYear().toString(), semester_count: 8, current_semester: 1, is_active: true }
+        ]
+      })
+    } catch (error: any) {
+      console.error('Error in bulk create form:', error)
+    }
+  }
+
+  const addDepartmentToBulk = () => {
+    setBulkFormData(prev => ({
+      ...prev,
+      departments: [...prev.departments, { name: '', code: '', description: '', duration_years: 4, hod_id: '', academic_year: new Date().getFullYear().toString(), semester_count: 8, current_semester: 1, is_active: true }]
+    }))
+  }
+
+  const removeDepartmentFromBulk = (index: number) => {
+    if (bulkFormData.departments.length > 1) {
+      setBulkFormData(prev => ({
+        ...prev,
+        departments: prev.departments.filter((_, i) => i !== index)
+      }))
     }
   }
 
@@ -328,6 +412,20 @@ export default function DepartmentsPage() {
             {selectedDepartments.length > 0 && (
               <div className="flex gap-2">
                 <button
+                  onClick={() => setShowBulkCreateForm(true)}
+                  className="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 flex items-center gap-2"
+                >
+                  <Plus className="h-4 w-4" />
+                  Bulk Create
+                </button>
+                <button
+                  onClick={() => setShowBulkUpdateForm(true)}
+                  className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 flex items-center gap-2"
+                >
+                  <Edit className="h-4 w-4" />
+                  Bulk Update
+                </button>
+                <button
                   onClick={handleBulkDelete}
                   className="bg-red-600 text-white px-4 py-2 rounded-md hover:bg-red-700 flex items-center gap-2"
                 >
@@ -354,13 +452,15 @@ export default function DepartmentsPage() {
                   <Filter className="h-4 w-4" />
                   Bulk Actions
                 </button>
-          <button
-            onClick={() => setShowCreateForm(true)}
-            className="bg-primary text-primary-foreground px-4 py-2 rounded-md hover:bg-primary/90 flex items-center gap-2"
-          >
-            <Plus className="h-4 w-4" />
-            Add Department
-          </button>
+          {canCreate && (
+            <button
+              onClick={() => setShowCreateForm(true)}
+              className="bg-primary text-primary-foreground px-4 py-2 rounded-md hover:bg-primary/90 flex items-center gap-2"
+            >
+              <Plus className="h-4 w-4" />
+              Add Department
+            </button>
+          )}
               </>
             )}
           </div>
@@ -387,9 +487,9 @@ export default function DepartmentsPage() {
                 onChange={(e) => setFilterActive(e.target.value === 'all' ? null : e.target.value === 'true')}
                 className="px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
               >
-                <option value="all">All Status</option>
-                <option value="true">Active</option>
-                <option value="false">Inactive</option>
+                {SYSTEM_CONFIG.STATUS_OPTIONS.map(option => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
               </select>
               <select
                 value={`${sortBy}-${sortOrder}`}
@@ -400,12 +500,9 @@ export default function DepartmentsPage() {
                 }}
                 className="px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
               >
-                <option value="name-asc">Name A-Z</option>
-                <option value="name-desc">Name Z-A</option>
-                <option value="code-asc">Code A-Z</option>
-                <option value="code-desc">Code Z-A</option>
-                <option value="created_at-desc">Newest First</option>
-                <option value="created_at-asc">Oldest First</option>
+                {SYSTEM_CONFIG.SORT_OPTIONS.departments.map(option => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
               </select>
             </div>
           </div>
@@ -465,11 +562,9 @@ export default function DepartmentsPage() {
                     onChange={(e) => setFormData({...formData, duration_years: parseInt(e.target.value)})}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
                   >
-                    <option value={1}>1 Year</option>
-                    <option value={2}>2 Years</option>
-                    <option value={3}>3 Years</option>
-                    <option value={4}>4 Years</option>
-                    <option value={5}>5 Years</option>
+                    {SYSTEM_CONFIG.DURATION_OPTIONS.map(option => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
                   </select>
                 </div>
                 <div>
@@ -490,11 +585,9 @@ export default function DepartmentsPage() {
                     onChange={(e) => setFormData({...formData, semester_count: parseInt(e.target.value)})}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
                   >
-                    <option value={2}>2 Semesters</option>
-                    <option value={4}>4 Semesters</option>
-                    <option value={6}>6 Semesters</option>
-                    <option value={8}>8 Semesters</option>
-                    <option value={10}>10 Semesters</option>
+                    {SYSTEM_CONFIG.SEMESTER_COUNT_OPTIONS.map(option => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
                   </select>
                 </div>
               </div>
@@ -602,11 +695,9 @@ export default function DepartmentsPage() {
                     onChange={(e) => setFormData({...formData, duration_years: parseInt(e.target.value)})}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
                   >
-                    <option value={1}>1 Year</option>
-                    <option value={2}>2 Years</option>
-                    <option value={3}>3 Years</option>
-                    <option value={4}>4 Years</option>
-                    <option value={5}>5 Years</option>
+                    {SYSTEM_CONFIG.DURATION_OPTIONS.map(option => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
                   </select>
                 </div>
                 <div>
@@ -626,11 +717,9 @@ export default function DepartmentsPage() {
                     onChange={(e) => setFormData({...formData, semester_count: parseInt(e.target.value)})}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
                   >
-                    <option value={2}>2 Semesters</option>
-                    <option value={4}>4 Semesters</option>
-                    <option value={6}>6 Semesters</option>
-                    <option value={8}>8 Semesters</option>
-                    <option value={10}>10 Semesters</option>
+                    {SYSTEM_CONFIG.SEMESTER_COUNT_OPTIONS.map(option => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
                   </select>
                 </div>
               </div>
@@ -688,6 +777,173 @@ export default function DepartmentsPage() {
         </div>
       )}
 
+      {/* Bulk Create Form Modal */}
+      {showBulkCreateForm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white p-6 rounded-lg w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+            <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
+              <Plus className="h-5 w-5 text-green-600" />
+              Bulk Create Departments
+            </h2>
+            <form onSubmit={handleBulkCreateSubmit} className="space-y-4">
+              {bulkFormData.departments.map((dept, index) => (
+                <div key={index} className="border rounded-lg p-4 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="font-medium">Department {index + 1}</h3>
+                    {bulkFormData.departments.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => removeDepartmentFromBulk(index)}
+                        className="text-red-600 hover:text-red-800"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Name *</label>
+                      <input
+                        type="text"
+                        value={dept.name}
+                        onChange={(e) => {
+                          const newDepartments = [...bulkFormData.departments]
+                          newDepartments[index].name = e.target.value
+                          setBulkFormData({...bulkFormData, departments: newDepartments})
+                        }}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+                        placeholder="e.g., Computer Science"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Code *</label>
+                      <input
+                        type="text"
+                        value={dept.code}
+                        onChange={(e) => {
+                          const newDepartments = [...bulkFormData.departments]
+                          newDepartments[index].code = e.target.value
+                          setBulkFormData({...bulkFormData, departments: newDepartments})
+                        }}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+                        placeholder="e.g., CS"
+                        required
+                      />
+                    </div>
+                    <div className="md:col-span-2">
+                      <label className="block text-sm font-medium mb-1">Description</label>
+                      <textarea
+                        value={dept.description}
+                        onChange={(e) => {
+                          const newDepartments = [...bulkFormData.departments]
+                          newDepartments[index].description = e.target.value
+                          setBulkFormData({...bulkFormData, departments: newDepartments})
+                        }}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+                        placeholder="Brief description of the department..."
+                        rows={2}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Duration (Years) *</label>
+                      <select
+                        value={dept.duration_years}
+                        onChange={(e) => {
+                          const newDepartments = [...bulkFormData.departments]
+                          newDepartments[index].duration_years = parseInt(e.target.value)
+                          setBulkFormData({...bulkFormData, departments: newDepartments})
+                        }}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+                      >
+                        {SYSTEM_CONFIG.DURATION_OPTIONS.map(option => (
+                          <option key={option.value} value={option.value}>{option.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Academic Year *</label>
+                      <input
+                        type="text"
+                        value={dept.academic_year}
+                        onChange={(e) => {
+                          const newDepartments = [...bulkFormData.departments]
+                          newDepartments[index].academic_year = e.target.value
+                          setBulkFormData({...bulkFormData, departments: newDepartments})
+                        }}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+                        placeholder="2024-25"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Semester Count *</label>
+                      <select
+                        value={dept.semester_count}
+                        onChange={(e) => {
+                          const newDepartments = [...bulkFormData.departments]
+                          newDepartments[index].semester_count = parseInt(e.target.value)
+                          setBulkFormData({...bulkFormData, departments: newDepartments})
+                        }}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+                      >
+                        {SYSTEM_CONFIG.SEMESTER_COUNT_OPTIONS.map(option => (
+                          <option key={option.value} value={option.value}>{option.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">HOD (Optional)</label>
+                      <select
+                        value={dept.hod_id}
+                        onChange={(e) => {
+                          const newDepartments = [...bulkFormData.departments]
+                          newDepartments[index].hod_id = e.target.value
+                          setBulkFormData({...bulkFormData, departments: newDepartments})
+                        }}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+                      >
+                        <option value="">No HOD assigned</option>
+                        {hods.map((hod) => (
+                          <option key={hod.id} value={hod.id}>
+                            {hod.name} {hod.has_department ? '(Already has department)' : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                </div>
+              ))}
+              
+              <div className="flex gap-2 pt-4">
+                <button
+                  type="button"
+                  onClick={addDepartmentToBulk}
+                  className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 flex items-center gap-2"
+                >
+                  <Plus className="h-4 w-4" />
+                  Add Department
+                </button>
+                <button
+                  type="submit"
+                  className="bg-green-600 text-white px-6 py-2 rounded-md hover:bg-green-700 flex items-center gap-2"
+                >
+                  <Plus className="h-4 w-4" />
+                  Create {bulkFormData.departments.length} Departments
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowBulkCreateForm(false)}
+                  className="bg-gray-500 text-white px-6 py-2 rounded-md hover:bg-gray-600"
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Departments Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {filteredAndSortedDepartments && Array.isArray(filteredAndSortedDepartments) && filteredAndSortedDepartments.map((dept) => (
@@ -717,20 +973,24 @@ export default function DepartmentsPage() {
               </div>
               {user?.role === 'admin' && !showBulkActions && (
                 <div className="flex gap-2">
-                  <button 
-                    onClick={() => handleEdit(dept)}
-                    className="p-1 text-gray-400 hover:text-blue-600 transition-colors"
-                    title="Edit Department"
-                  >
-                    <Edit className="h-4 w-4" />
-                  </button>
-                  <button
-                    onClick={() => handleDelete(dept.id)}
-                    className="p-1 text-gray-400 hover:text-red-600 transition-colors"
-                    title="Delete Department"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
+                  {canUpdate && (
+                    <button 
+                      onClick={() => handleEdit(dept)}
+                      className="p-1 text-gray-400 hover:text-blue-600 transition-colors"
+                      title="Edit Department"
+                    >
+                      <Edit className="h-4 w-4" />
+                    </button>
+                  )}
+                  {canDelete && (
+                    <button
+                      onClick={() => handleDelete(dept.id)}
+                      className="p-1 text-gray-400 hover:text-red-600 transition-colors"
+                      title="Delete Department"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  )}
                 </div>
               )}
             </div>

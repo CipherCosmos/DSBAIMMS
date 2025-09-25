@@ -46,12 +46,48 @@ CREATE TABLE departments (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- Semesters table
+CREATE TABLE semesters (
+    id SERIAL PRIMARY KEY,
+    department_id INTEGER NOT NULL,
+    semester_number INTEGER NOT NULL CHECK (semester_number BETWEEN 1 AND 8),
+    academic_year VARCHAR(9) NOT NULL,
+    name VARCHAR(50) NOT NULL, -- e.g., "Semester 1", "Semester 2"
+    start_date DATE,
+    end_date DATE,
+    is_active BOOLEAN DEFAULT FALSE,
+    is_completed BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    FOREIGN KEY (department_id) REFERENCES departments(id),
+    UNIQUE(department_id, semester_number, academic_year)
+);
+
+-- Student Semester Enrollments
+CREATE TABLE student_semester_enrollments (
+    id SERIAL PRIMARY KEY,
+    student_id INTEGER NOT NULL,
+    semester_id INTEGER NOT NULL,
+    class_id INTEGER NOT NULL,
+    enrollment_date DATE DEFAULT CURRENT_DATE,
+    status VARCHAR(20) DEFAULT 'active', -- active, completed, dropped, promoted
+    final_grade VARCHAR(5), -- A+, A, B+, B, C+, C, D, F
+    gpa DECIMAL(3,2),
+    attendance_percentage DECIMAL(5,2),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    FOREIGN KEY (student_id) REFERENCES users(id),
+    FOREIGN KEY (semester_id) REFERENCES semesters(id),
+    FOREIGN KEY (class_id) REFERENCES classes(id),
+    UNIQUE(student_id, semester_id)
+);
+
 -- Classes table
 CREATE TABLE classes (
     id SERIAL PRIMARY KEY,
     name VARCHAR(50) NOT NULL,
     year INTEGER NOT NULL,
-    semester INTEGER NOT NULL CHECK (semester BETWEEN 1 AND 8),
+    semester_id INTEGER NOT NULL, -- Changed from semester INTEGER to semester_id
     section VARCHAR(2) NOT NULL,
     department_id INTEGER NOT NULL,
     class_teacher_id INTEGER,
@@ -59,6 +95,7 @@ CREATE TABLE classes (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     FOREIGN KEY (department_id) REFERENCES departments(id),
+    FOREIGN KEY (semester_id) REFERENCES semesters(id),
     FOREIGN KEY (class_teacher_id) REFERENCES users(id),
     FOREIGN KEY (cr_id) REFERENCES users(id)
 );
@@ -220,7 +257,14 @@ ALTER TABLE departments ADD CONSTRAINT fk_department_hod FOREIGN KEY (hod_id) RE
 CREATE INDEX idx_users_role ON users(role);
 CREATE INDEX idx_users_department ON users(department_id);
 CREATE INDEX idx_users_class ON users(class_id);
+CREATE INDEX idx_semesters_department ON semesters(department_id);
+CREATE INDEX idx_semesters_academic_year ON semesters(academic_year);
+CREATE INDEX idx_semesters_active ON semesters(is_active);
+CREATE INDEX idx_student_enrollments_student ON student_semester_enrollments(student_id);
+CREATE INDEX idx_student_enrollments_semester ON student_semester_enrollments(semester_id);
+CREATE INDEX idx_student_enrollments_status ON student_semester_enrollments(status);
 CREATE INDEX idx_classes_department ON classes(department_id);
+CREATE INDEX idx_classes_semester ON classes(semester_id);
 CREATE INDEX idx_subjects_department ON subjects(department_id);
 CREATE INDEX idx_subjects_class ON subjects(class_id);
 CREATE INDEX idx_subjects_teacher ON subjects(teacher_id);
@@ -252,8 +296,15 @@ UPDATE departments SET hod_id = 2 WHERE id = 1;
 INSERT INTO users (username, email, full_name, hashed_password, role, department_id, employee_id) VALUES
 ('teacher1', 'teacher1@lms.edu', 'Prof. Jane Doe', '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewtsNcLKPZ0hLsZm', 'teacher', 1, 'TEA001');
 
--- Insert sample class
-INSERT INTO classes (name, year, semester, section, department_id, class_teacher_id) VALUES
+-- Insert sample semesters for CSE department
+INSERT INTO semesters (department_id, semester_number, academic_year, name, start_date, end_date, is_active) VALUES
+(1, 1, '2024-2025', 'Semester 1', '2024-08-01', '2024-12-31', true),
+(1, 2, '2024-2025', 'Semester 2', '2025-01-01', '2025-05-31', false),
+(1, 3, '2024-2025', 'Semester 3', '2025-06-01', '2025-12-31', false),
+(1, 4, '2024-2025', 'Semester 4', '2026-01-01', '2026-05-31', false);
+
+-- Insert sample class (updated to use semester_id)
+INSERT INTO classes (name, year, semester_id, section, department_id, class_teacher_id) VALUES
 ('CSE-A-2024', 2024, 1, 'A', 1, 3);
 
 -- Insert sample student
@@ -281,6 +332,10 @@ INSERT INTO co_po_mappings (co_id, po_id, mapping_strength) VALUES
 (1, 1, 3.0), (1, 2, 2.0),
 (2, 1, 2.0), (2, 2, 3.0),
 (3, 2, 3.0), (3, 3, 3.0);
+
+-- Insert sample student semester enrollment
+INSERT INTO student_semester_enrollments (student_id, semester_id, class_id, status, final_grade, gpa, attendance_percentage) VALUES
+(4, 1, 1, 'active', NULL, NULL, 85.5);
 
 -- Create question_banks table
 CREATE TABLE IF NOT EXISTS question_banks (

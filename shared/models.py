@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Boolean, ForeignKey, Text, Enum, UniqueConstraint
+from sqlalchemy import Column, Integer, String, DateTime, Boolean, ForeignKey, Text, Enum, UniqueConstraint, JSON
 from sqlalchemy.types import DECIMAL as Decimal
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
@@ -71,12 +71,14 @@ class User(Base):
     # Relationships
     department = relationship("Department", foreign_keys=[department_id], back_populates="users")
     class_assigned = relationship("Class", foreign_keys=[class_id], back_populates="students")
+    semester_enrollments = relationship("StudentSemesterEnrollment", foreign_keys="StudentSemesterEnrollment.student_id", back_populates="student", cascade="all, delete-orphan")
     taught_subjects = relationship("TeacherSubject", foreign_keys="TeacherSubject.teacher_id", back_populates="teacher", cascade="all, delete-orphan")
     marks = relationship("Mark", foreign_keys="Mark.student_id", back_populates="student")
     graded_marks = relationship("Mark", foreign_keys="Mark.graded_by", back_populates="grader")
     created_question_banks = relationship("QuestionBank", foreign_keys="QuestionBank.created_by", back_populates="creator")
     added_question_bank_items = relationship("QuestionBankItem", foreign_keys="QuestionBankItem.added_by", back_populates="adder")
     uploaded_files = relationship("FileUpload", foreign_keys="FileUpload.uploaded_by", back_populates="uploaded_by_user")
+    attendance_records = relationship("Attendance", foreign_keys="Attendance.student_id", back_populates="student", cascade="all, delete-orphan")
 
 class Department(Base):
     __tablename__ = "departments"
@@ -97,11 +99,52 @@ class Department(Base):
     # Relationships
     users = relationship("User", foreign_keys="User.department_id", back_populates="department")
     hod = relationship("User", foreign_keys=[hod_id])
+    semesters = relationship("Semester", foreign_keys="Semester.department_id", back_populates="department")
     classes = relationship("Class", foreign_keys="Class.department_id", back_populates="department")
     subjects = relationship("Subject", foreign_keys="Subject.department_id", back_populates="department")
     question_banks = relationship("QuestionBank", foreign_keys="QuestionBank.department_id", back_populates="department")
     pos = relationship("PO", foreign_keys="PO.department_id", back_populates="department")
     cos = relationship("CO", foreign_keys="CO.department_id", back_populates="department")
+
+class Semester(Base):
+    __tablename__ = "semesters"
+
+    id = Column(Integer, primary_key=True, index=True)
+    department_id = Column(Integer, ForeignKey("departments.id"), nullable=False)
+    semester_number = Column(Integer, nullable=False)
+    academic_year = Column(String(9), nullable=False)
+    name = Column(String(50), nullable=False)
+    start_date = Column(DateTime(timezone=True))
+    end_date = Column(DateTime(timezone=True))
+    is_active = Column(Boolean, default=False)
+    is_completed = Column(Boolean, default=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    
+    # Relationships
+    department = relationship("Department", foreign_keys=[department_id], back_populates="semesters")
+    classes = relationship("Class", foreign_keys="Class.semester_id", back_populates="semester")
+    student_enrollments = relationship("StudentSemesterEnrollment", foreign_keys="StudentSemesterEnrollment.semester_id", back_populates="semester")
+
+class StudentSemesterEnrollment(Base):
+    __tablename__ = "student_semester_enrollments"
+
+    id = Column(Integer, primary_key=True, index=True)
+    student_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    semester_id = Column(Integer, ForeignKey("semesters.id"), nullable=False)
+    class_id = Column(Integer, ForeignKey("classes.id"), nullable=False)
+    enrollment_date = Column(DateTime(timezone=True), server_default=func.now())
+    status = Column(String(20), default="active")  # active, completed, dropped, promoted
+    final_grade = Column(String(5))  # A+, A, B+, B, C+, C, D, F
+    gpa = Column(Decimal(3, 2))
+    attendance_percentage = Column(Decimal(5, 2))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    
+    # Relationships
+    student = relationship("User", foreign_keys=[student_id], back_populates="semester_enrollments")
+    semester = relationship("Semester", foreign_keys=[semester_id], back_populates="student_enrollments")
+    class_ref = relationship("Class", foreign_keys=[class_id], back_populates="enrollments")
 
 class Class(Base):
     __tablename__ = "classes"
@@ -109,7 +152,7 @@ class Class(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(50), nullable=False)
     year = Column(Integer, nullable=False)
-    semester = Column(Integer, nullable=False)
+    semester_id = Column(Integer, ForeignKey("semesters.id"), nullable=False)
     section = Column(String(2), nullable=False)
     department_id = Column(Integer, ForeignKey("departments.id"), nullable=False)
     class_teacher_id = Column(Integer, ForeignKey("users.id"))
@@ -120,10 +163,13 @@ class Class(Base):
     # Relationships
     students = relationship("User", foreign_keys="User.class_id", back_populates="class_assigned")
     department = relationship("Department", foreign_keys=[department_id], back_populates="classes")
+    semester = relationship("Semester", foreign_keys=[semester_id], back_populates="classes")
     class_teacher = relationship("User", foreign_keys=[class_teacher_id])
     cr = relationship("User", foreign_keys=[cr_id])
     subjects = relationship("Subject", foreign_keys="Subject.class_id", back_populates="class_ref")
     exams = relationship("Exam", foreign_keys="Exam.class_id", back_populates="class_ref")
+    enrollments = relationship("StudentSemesterEnrollment", foreign_keys="StudentSemesterEnrollment.class_id", back_populates="class_ref")
+    attendance_records = relationship("Attendance", foreign_keys="Attendance.class_id", back_populates="class_", cascade="all, delete-orphan")
 
 class Subject(Base):
     __tablename__ = "subjects"
@@ -150,6 +196,7 @@ class Subject(Base):
     question_banks = relationship("QuestionBank", foreign_keys="QuestionBank.subject_id", back_populates="subject")
     exams = relationship("Exam", foreign_keys="Exam.subject_id", back_populates="subject")
     cos = relationship("CO", foreign_keys="CO.subject_id", back_populates="subject")
+    attendance_records = relationship("Attendance", foreign_keys="Attendance.subject_id", back_populates="subject", cascade="all, delete-orphan")
 
 class PO(Base):
     __tablename__ = "pos"
@@ -441,6 +488,28 @@ class TeacherSubject(Base):
     subject = relationship("Subject", foreign_keys=[subject_id], back_populates="teacher_subjects")
     
     __table_args__ = (UniqueConstraint('teacher_id', 'subject_id', name='unique_teacher_subject'),)
+
+class Attendance(Base):
+    __tablename__ = "attendance"
+
+    id = Column(Integer, primary_key=True, index=True)
+    student_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    subject_id = Column(Integer, ForeignKey("subjects.id"), nullable=False)
+    class_id = Column(Integer, ForeignKey("classes.id"), nullable=False)
+    attendance_date = Column(DateTime, nullable=False)
+    status = Column(String(20), nullable=False)  # present, absent, late, excused
+    remarks = Column(Text)
+    marked_by = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default = func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate = func.now())
+    
+    # Relationships
+    student = relationship("User", foreign_keys=[student_id], back_populates="attendance_records")
+    subject = relationship("Subject", back_populates="attendance_records")
+    class_ = relationship("Class", back_populates="attendance_records")
+    marked_by_user = relationship("User", foreign_keys=[marked_by])
+    
+    __table_args__ = (UniqueConstraint('student_id', 'subject_id', 'attendance_date', name='unique_attendance_per_day'),)
 
 class AuditLog(Base):
     __tablename__ = "audit_logs"

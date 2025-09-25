@@ -688,6 +688,189 @@ async def create_pie_chart(
     else:
         raise HTTPException(status_code=404, detail="No data available for chart")
 
+# Reports endpoints for frontend compatibility
+@app.get("/api/reports")
+async def get_reports(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=1000),
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(RoleChecker(["admin", "hod", "teacher"]))
+):
+    """Get all reports"""
+    # For now, return mock data as this would require a reports table
+    reports = [
+        {
+            "id": 1,
+            "name": "Student Performance Report",
+            "description": "Comprehensive student performance analysis",
+            "type": "student-performance",
+            "category": "Academic",
+            "parameters": {"department_id": 1, "class_id": 1},
+            "created_by": current_user_id,
+            "created_by_name": "Current User",
+            "is_public": False,
+            "last_generated": "2024-01-15T10:00:00Z",
+            "file_path": "/reports/student_performance_1.pdf",
+            "file_size": 2048000,
+            "created_at": "2024-01-15T10:00:00Z",
+            "updated_at": "2024-01-15T10:00:00Z"
+        },
+        {
+            "id": 2,
+            "name": "Department Analytics Report",
+            "description": "Department-wise performance metrics",
+            "type": "department-analytics",
+            "category": "Administrative",
+            "parameters": {"department_id": 1, "semester_id": 1},
+            "created_by": current_user_id,
+            "created_by_name": "Current User",
+            "is_public": True,
+            "last_generated": "2024-01-14T15:30:00Z",
+            "file_path": "/reports/department_analytics_2.pdf",
+            "file_size": 1536000,
+            "created_at": "2024-01-14T15:30:00Z",
+            "updated_at": "2024-01-14T15:30:00Z"
+        }
+    ]
+    
+    return {"data": reports, "total": len(reports)}
+
+@app.post("/api/reports")
+async def create_report(
+    report_data: Dict[str, Any],
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(RoleChecker(["admin", "hod", "teacher"]))
+):
+    """Create a new report"""
+    try:
+        # For now, return a mock response
+        new_report = {
+            "id": 3,
+            "name": report_data.get("name", "New Report"),
+            "description": report_data.get("description", ""),
+            "type": report_data.get("type", "custom"),
+            "category": report_data.get("category", "Custom"),
+            "parameters": report_data.get("parameters", {}),
+            "created_by": current_user_id,
+            "created_by_name": "Current User",
+            "is_public": report_data.get("is_public", False),
+            "created_at": datetime.utcnow().isoformat(),
+            "updated_at": datetime.utcnow().isoformat()
+        }
+        
+        # Log audit
+        log_audit(db, current_user_id, "CREATE", "Report", f"Created report: {new_report['name']}")
+        
+        return new_report
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.put("/api/reports/{report_id}")
+async def update_report(
+    report_id: int,
+    report_data: Dict[str, Any],
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(RoleChecker(["admin", "hod", "teacher"]))
+):
+    """Update a report"""
+    try:
+        # For now, return a mock response
+        updated_report = {
+            "id": report_id,
+            "name": report_data.get("name", "Updated Report"),
+            "description": report_data.get("description", ""),
+            "type": report_data.get("type", "custom"),
+            "category": report_data.get("category", "Custom"),
+            "parameters": report_data.get("parameters", {}),
+            "created_by": current_user_id,
+            "created_by_name": "Current User",
+            "is_public": report_data.get("is_public", False),
+            "created_at": "2024-01-15T10:00:00Z",
+            "updated_at": datetime.utcnow().isoformat()
+        }
+        
+        # Log audit
+        log_audit(db, current_user_id, "UPDATE", "Report", f"Updated report: {updated_report['name']}")
+        
+        return updated_report
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/api/reports/{report_id}")
+async def delete_report(
+    report_id: int,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(RoleChecker(["admin", "hod", "teacher"]))
+):
+    """Delete a report"""
+    try:
+        # For now, return a mock response
+        # Log audit
+        log_audit(db, current_user_id, "DELETE", "Report", f"Deleted report ID: {report_id}")
+        
+        return {"message": f"Report {report_id} deleted successfully"}
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/reports/{report_id}/generate")
+async def generate_report(
+    report_id: int,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(RoleChecker(["admin", "hod", "teacher"]))
+):
+    """Generate a report"""
+    try:
+        # For now, return mock data
+        report_data = {
+            "title": f"Generated Report {report_id}",
+            "data": [
+                {"metric": "Total Students", "value": 150},
+                {"metric": "Average Score", "value": 75.5},
+                {"metric": "Pass Rate", "value": 85.2}
+            ],
+            "summary": {
+                "total_records": 150,
+                "generated_at": datetime.utcnow().isoformat(),
+                "parameters": {"report_id": report_id}
+            },
+            "generated_at": datetime.utcnow().isoformat(),
+            "parameters": {"report_id": report_id}
+        }
+        
+        # Log audit
+        log_audit(db, current_user_id, "GENERATE", "Report", f"Generated report ID: {report_id}")
+        
+        return report_data
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/reports/{report_id}/download")
+async def download_report(
+    report_id: int,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(RoleChecker(["admin", "hod", "teacher"]))
+):
+    """Download a report file"""
+    try:
+        # For now, return a mock PDF file
+        mock_pdf_content = b"%PDF-1.4\n1 0 obj\n<<\n/Type /Catalog\n/Pages 2 0 R\n>>\nendobj\n2 0 obj\n<<\n/Type /Pages\n/Kids [3 0 R]\n/Count 1\n>>\nendobj\n3 0 obj\n<<\n/Type /Page\n/Parent 2 0 R\n/MediaBox [0 0 612 792]\n/Contents 4 0 R\n>>\nendobj\n4 0 obj\n<<\n/Length 44\n>>\nstream\nBT\n/F1 12 Tf\n72 720 Td\n(Report Content) Tj\nET\nendstream\nendobj\nxref\n0 5\n0000000000 65535 f \n0000000010 00000 n \n0000000053 00000 n \n0000000110 00000 n \n0000000204 00000 n \ntrailer\n<<\n/Size 5\n/Root 1 0 R\n>>\nstartxref\n298\n%%EOF"
+        
+        # Log audit
+        log_audit(db, current_user_id, "DOWNLOAD", "Report", f"Downloaded report ID: {report_id}")
+        
+        return Response(
+            content=mock_pdf_content,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f"attachment; filename=report_{report_id}.pdf"}
+        )
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/health")
 async def health_check():
     return {"status": "healthy", "service": "exports"}

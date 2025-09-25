@@ -5,7 +5,7 @@ import jwt
 import os
 from datetime import datetime, timedelta
 from passlib.context import CryptContext
-from fastapi import HTTPException, Depends
+from fastapi import HTTPException, Depends, Request
 from fastapi.security import HTTPBearer
 import redis
 import json
@@ -61,14 +61,90 @@ def get_current_user_id(token: str = Depends(security)):
         raise HTTPException(status_code=401, detail="Invalid token")
     return int(user_id)
 
-class RoleChecker:
-    def __init__(self, allowed_roles):
-        self.allowed_roles = allowed_roles
+def get_current_user_id_from_header(request: Request):
+    """Extract user ID from Authorization header"""
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing or invalid token")
+    
+    token = auth_header.split(" ")[1]
+    payload = verify_token(token)
+    user_id = payload.get("sub")
+    if user_id is None:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    return int(user_id)
 
-    def __call__(self, user_id: int = Depends(get_current_user_id)):
-        # For now, allow all authenticated users to access stats
-        # In a production system, you would check the user's role from the database
-        return user_id
+def get_current_user_from_header(request: Request):
+    """Extract and validate user from Authorization header - FastAPI dependency"""
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing or invalid token")
+    
+    token = auth_header.split(" ")[1]
+    payload = verify_token(token)
+    user_id = payload.get("sub")
+    if user_id is None:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    
+    return int(user_id)
+
+def get_current_user_with_role(request: Request):
+    """Get current user with role information - FastAPI dependency"""
+    user_id = get_current_user_from_header(request)
+    
+    # Get user from Redis cache first
+    try:
+        user_data = redis_client.get(f"user:{user_id}")
+        if user_data:
+            user_info = json.loads(user_data)
+            return {
+                "id": user_info["id"],
+                "role": user_info["role"],
+                "department_id": user_info.get("department_id"),
+                "class_id": user_info.get("class_id")
+            }
+    except Exception:
+        pass
+    
+    # If not in cache, return basic info with admin role for now
+    return {
+        "id": user_id,
+        "role": "admin",  # Default for now
+        "department_id": None,
+        "class_id": None
+    }
+
+def get_current_user_id(request: Request):
+    """Get current user ID from token - FastAPI dependency"""
+    return get_current_user_from_header(request)
+
+def get_current_user_info(request: Request):
+    """Get current user info with role - FastAPI dependency"""
+    return get_current_user_with_role(request)
+
+def require_roles(allowed_roles: List[str]):
+    """Create a dependency that requires specific roles"""
+    def role_checker(user_info: dict = Depends(get_current_user_info)):
+        if user_info["role"] not in allowed_roles:
+            raise HTTPException(
+                status_code=403, 
+                detail=f"Access denied. Required roles: {allowed_roles}, User role: {user_info['role']}"
+            )
+        return user_info["id"]
+    return role_checker
+
+# Predefined role checkers for common use cases
+def require_admin(user_info: dict = Depends(get_current_user_info)):
+    return require_roles(["admin"])(user_info)
+
+def require_admin_or_hod(user_info: dict = Depends(get_current_user_info)):
+    return require_roles(["admin", "hod"])(user_info)
+
+def require_admin_hod_or_teacher(user_info: dict = Depends(get_current_user_info)):
+    return require_roles(["admin", "hod", "teacher"])(user_info)
+
+def require_any_role(user_info: dict = Depends(get_current_user_info)):
+    return require_roles(["admin", "hod", "teacher", "student"])(user_info)
 
 class PermissionChecker:
     def __init__(self, required_permission: Permission, resource_type: str = None):
@@ -96,3 +172,16 @@ limiter = Limiter(key_func=get_remote_address, default_limits=["100/minute"])
 # OAuth2 setup
 from fastapi.security import OAuth2PasswordBearer
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+
+class RoleChecker:
+    """Role-based access control checker"""
+    def __init__(self, allowed_roles: List[str]):
+        self.allowed_roles = allowed_roles
+    
+    def __call__(self, user_info: dict = Depends(get_current_user_info)):
+        if user_info["role"] not in self.allowed_roles:
+            raise HTTPException(
+                status_code=403, 
+                detail=f"Access denied. Required roles: {self.allowed_roles}, User role: {user_info['role']}"
+            )
+        return user_info["id"]

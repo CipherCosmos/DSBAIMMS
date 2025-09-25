@@ -1,418 +1,757 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useAuth } from '@/hooks/useAuth'
 import { apiClient } from '@/lib/api'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
-import { Bell, Search, Check, X, Plus, Filter, AlertCircle, Info, CheckCircle, AlertTriangle } from 'lucide-react'
-import { toast } from 'react-hot-toast'
+import { 
+  Bell, Plus, Edit, Trash2, Save, X, Eye, 
+  RefreshCw, Download, Upload, Filter, Search,
+  BookOpen, Target, Award, Users, Calendar, Building,
+  FileText, BarChart3, Clock, CheckCircle, XCircle,
+  Mail, AlertTriangle, Info, CheckCircle2
+} from 'lucide-react'
 
 interface Notification {
   id: number
-  user_id: number
   title: string
   message: string
   type: string
-  is_read: boolean
-  action_url?: string
+  priority: string
+  target_audience: string
+  target_roles?: string[]
+  target_departments?: number[]
+  target_classes?: number[]
+  target_users?: number[]
+  is_published: boolean
+  scheduled_at?: string
+  expires_at?: string
+  created_by: number
+  created_by_name?: string
   created_at: string
-  user_name?: string
+  updated_at?: string
+  read_count: number
+  total_recipients: number
+}
+
+interface Department {
+  id: number
+  name: string
+  code: string
+}
+
+interface Class {
+  id: number
+  name: string
+  department_id: number
+  department_name?: string
+}
+
+interface User {
+  id: number
+  full_name: string
+  role: string
+  department_id?: number
+  class_id?: number
 }
 
 export default function NotificationsPage() {
-  const { user } = useAuth()
   const [notifications, setNotifications] = useState<Notification[]>([])
+  const [departments, setDepartments] = useState<Department[]>([])
+  const [classes, setClasses] = useState<Class[]>([])
+  const [users, setUsers] = useState<User[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [showForm, setShowForm] = useState(false)
+  const [editingNotification, setEditingNotification] = useState<Notification | null>(null)
+  const [filterType, setFilterType] = useState<string | null>(null)
+  const [filterPriority, setFilterPriority] = useState<string | null>(null)
+  const [filterStatus, setFilterStatus] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
-  const [selectedType, setSelectedType] = useState('')
-  const [showUnreadOnly, setShowUnreadOnly] = useState(false)
-  const [unreadCount, setUnreadCount] = useState(0)
-  const [showCreateDialog, setShowCreateDialog] = useState(false)
+
+  const [formData, setFormData] = useState({
+    title: '',
+    message: '',
+    type: 'info',
+    priority: 'medium',
+    target_audience: 'all',
+    target_roles: [] as string[],
+    target_departments: [] as number[],
+    target_classes: [] as number[],
+    target_users: [] as number[],
+    is_published: false,
+    scheduled_at: '',
+    expires_at: ''
+  })
+
+  const notificationTypes = [
+    { value: 'info', label: 'Information', icon: Info, color: 'bg-blue-100 text-blue-800' },
+    { value: 'warning', label: 'Warning', icon: AlertTriangle, color: 'bg-yellow-100 text-yellow-800' },
+    { value: 'success', label: 'Success', icon: CheckCircle2, color: 'bg-green-100 text-green-800' },
+    { value: 'error', label: 'Error', icon: XCircle, color: 'bg-red-100 text-red-800' },
+    { value: 'announcement', label: 'Announcement', icon: Bell, color: 'bg-purple-100 text-purple-800' }
+  ]
+
+  const priorities = [
+    { value: 'low', label: 'Low', color: 'bg-gray-100 text-gray-800' },
+    { value: 'medium', label: 'Medium', color: 'bg-blue-100 text-blue-800' },
+    { value: 'high', label: 'High', color: 'bg-orange-100 text-orange-800' },
+    { value: 'urgent', label: 'Urgent', color: 'bg-red-100 text-red-800' }
+  ]
+
+  const targetAudiences = [
+    { value: 'all', label: 'All Users' },
+    { value: 'roles', label: 'Specific Roles' },
+    { value: 'departments', label: 'Specific Departments' },
+    { value: 'classes', label: 'Specific Classes' },
+    { value: 'users', label: 'Specific Users' }
+  ]
+
+  const roles = ['admin', 'hod', 'teacher', 'student']
 
   useEffect(() => {
-    loadNotifications()
-    loadUnreadCount()
-  }, [])
+    loadData()
+  }, [filterType, filterPriority, filterStatus])
 
-  const loadNotifications = async () => {
+  const loadData = async () => {
     try {
       setLoading(true)
-      const data = await apiClient.getNotifications()
-      setNotifications(data)
+      setError(null)
+
+      const [notificationsResponse, departmentsResponse, classesResponse, usersResponse] = await Promise.all([
+        apiClient.get('/api/notifications'),
+        apiClient.get('/api/departments'),
+        apiClient.get('/api/classes'),
+        apiClient.get('/api/users')
+      ])
+
+      let notificationsData = notificationsResponse.data || []
+      const departmentsData = departmentsResponse.data || []
+      const classesData = classesResponse.data || []
+      const usersData = usersResponse.data || []
+
+      // Apply filters
+      if (filterType) {
+        notificationsData = notificationsData.filter((n: Notification) => n.type === filterType)
+      }
+      if (filterPriority) {
+        notificationsData = notificationsData.filter((n: Notification) => n.priority === filterPriority)
+      }
+      if (filterStatus) {
+        if (filterStatus === 'published') {
+          notificationsData = notificationsData.filter((n: Notification) => n.is_published)
+        } else if (filterStatus === 'draft') {
+          notificationsData = notificationsData.filter((n: Notification) => !n.is_published)
+        }
+      }
+      if (searchTerm) {
+        notificationsData = notificationsData.filter((n: Notification) => 
+          n.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          n.message.toLowerCase().includes(searchTerm.toLowerCase())
+        )
+      }
+
+      setNotifications(notificationsData)
+      setDepartments(departmentsData)
+      setClasses(classesData)
+      setUsers(usersData)
     } catch (error) {
-      console.error('Error loading notifications:', error)
-      toast.error('Failed to load notifications')
+      console.error('Error loading data:', error)
+      setError('Failed to load notifications')
     } finally {
       setLoading(false)
     }
   }
 
-  const loadUnreadCount = async () => {
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
     try {
-      const response = await apiClient.getUnreadCount()
-      console.log('loadUnreadCount response:', response, typeof response)
-      
-      // Ensure we extract the numeric value properly
-      let count = 0
-      if (typeof response === 'number') {
-        count = response
-      } else if (response && typeof response === 'object' && 'unread_count' in response) {
-        count = Number(response.unread_count) || 0
+      if (editingNotification) {
+        await apiClient.put(`/api/notifications/${editingNotification.id}`, formData)
+      } else {
+        await apiClient.post('/api/notifications', formData)
       }
-      
-      setUnreadCount(count)
+      setShowForm(false)
+      setEditingNotification(null)
+      setFormData({
+        title: '',
+        message: '',
+        type: 'info',
+        priority: 'medium',
+        target_audience: 'all',
+        target_roles: [],
+        target_departments: [],
+        target_classes: [],
+        target_users: [],
+        is_published: false,
+        scheduled_at: '',
+        expires_at: ''
+      })
+      loadData()
     } catch (error) {
-      console.error('Error loading unread count:', error)
-      setUnreadCount(0)
+      console.error('Error saving notification:', error)
+      setError('Failed to save notification')
     }
   }
 
-  const handleSearch = () => {
-    loadNotifications()
-  }
-
-  const handleMarkAsRead = async (id: number) => {
-    try {
-      await apiClient.markAsRead(id)
-      toast.success('Notification marked as read')
-      loadNotifications()
-      loadUnreadCount()
-    } catch (error: any) {
-      toast.error(error.detail || 'Failed to mark notification as read')
-    }
-  }
-
-  const handleMarkAllRead = async () => {
-    try {
-      await apiClient.markAllRead()
-      toast.success('All notifications marked as read')
-      loadNotifications()
-      loadUnreadCount()
-    } catch (error: any) {
-      toast.error(error.detail || 'Failed to mark all notifications as read')
-    }
+  const handleEdit = (notification: Notification) => {
+    setEditingNotification(notification)
+    setFormData({
+      title: notification.title,
+      message: notification.message,
+      type: notification.type,
+      priority: notification.priority,
+      target_audience: notification.target_audience,
+      target_roles: notification.target_roles || [],
+      target_departments: notification.target_departments || [],
+      target_classes: notification.target_classes || [],
+      target_users: notification.target_users || [],
+      is_published: notification.is_published,
+      scheduled_at: notification.scheduled_at || '',
+      expires_at: notification.expires_at || ''
+    })
+    setShowForm(true)
   }
 
   const handleDelete = async (id: number) => {
     if (!confirm('Are you sure you want to delete this notification?')) return
 
     try {
-      await apiClient.deleteNotification(id)
-      toast.success('Notification deleted successfully')
-      loadNotifications()
-      loadUnreadCount()
-    } catch (error: any) {
-      toast.error(error.detail || 'Failed to delete notification')
+      await apiClient.delete(`/api/notifications/${id}`)
+      loadData()
+    } catch (error) {
+      console.error('Error deleting notification:', error)
+      setError('Failed to delete notification')
     }
   }
 
-  const handleCreate = async (e: React.FormEvent) => {
-    e.preventDefault()
-    const formData = new FormData(e.currentTarget)
-    const notificationData = {
-      user_id: parseInt(formData.get('user_id') as string),
-      title: formData.get('title') as string,
-      message: formData.get('message') as string,
-      type: formData.get('type') as string,
-      action_url: formData.get('action_url') as string || undefined
-    }
-
+  const handlePublish = async (notification: Notification) => {
     try {
-      await apiClient.createNotification(notificationData)
-      toast.success('Notification created successfully')
-      setShowCreateDialog(false)
-      loadNotifications()
-      loadUnreadCount()
-    } catch (error: any) {
-      toast.error(error.detail || 'Failed to create notification')
+      await apiClient.put(`/api/notifications/${notification.id}`, {
+        ...notification,
+        is_published: !notification.is_published
+      })
+      loadData()
+    } catch (error) {
+      console.error('Error updating notification:', error)
+      setError('Failed to update notification')
     }
   }
 
-  const getNotificationIcon = (type: string) => {
-    switch (type) {
-      case 'error':
-        return <AlertCircle className="h-5 w-5 text-red-600" />
-      case 'warning':
-        return <AlertTriangle className="h-5 w-5 text-yellow-600" />
-      case 'success':
-        return <CheckCircle className="h-5 w-5 text-green-600" />
-      default:
-        return <Info className="h-5 w-5 text-blue-600" />
+  const exportData = async () => {
+    try {
+      const csvContent = convertToCSV(notifications)
+      const blob = new Blob([csvContent], { type: 'text/csv' })
+      const url = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = 'notifications.csv'
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      window.URL.revokeObjectURL(url)
+    } catch (error) {
+      console.error('Error exporting data:', error)
+      setError('Failed to export data')
     }
   }
 
-  const getNotificationBadgeColor = (type: string) => {
-    switch (type) {
-      case 'error':
-        return 'bg-red-100 text-red-800'
-      case 'warning':
-        return 'bg-yellow-100 text-yellow-800'
-      case 'success':
-        return 'bg-green-100 text-green-800'
-      default:
-        return 'bg-blue-100 text-blue-800'
-    }
+  const convertToCSV = (data: Notification[]) => {
+    if (data.length === 0) return ''
+    
+    const headers = ['ID', 'Title', 'Message', 'Type', 'Priority', 'Target Audience', 'Published', 'Read Count', 'Total Recipients', 'Created By', 'Created At']
+    const csvRows = [
+      headers.join(','),
+      ...data.map(row => [
+        row.id,
+        row.title,
+        row.message,
+        row.type,
+        row.priority,
+        row.target_audience,
+        row.is_published ? 'Yes' : 'No',
+        row.read_count,
+        row.total_recipients,
+        row.created_by_name || '',
+        row.created_at
+      ].join(','))
+    ]
+    return csvRows.join('\n')
   }
 
-  const filteredNotifications = notifications.filter(notification =>
-    notification.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    notification.message.toLowerCase().includes(searchTerm.toLowerCase())
-  )
+  const getTypeIcon = (type: string) => {
+    const typeConfig = notificationTypes.find(t => t.value === type)
+    return typeConfig ? typeConfig.icon : Info
+  }
+
+  const getTypeColor = (type: string) => {
+    const typeConfig = notificationTypes.find(t => t.value === type)
+    return typeConfig ? typeConfig.color : 'bg-gray-100 text-gray-800'
+  }
+
+  const getPriorityColor = (priority: string) => {
+    const priorityConfig = priorities.find(p => p.value === priority)
+    return priorityConfig ? priorityConfig.color : 'bg-gray-100 text-gray-800'
+  }
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-96">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      <div className="flex items-center justify-center h-64">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
       </div>
     )
   }
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      {/* Header */}
+      <div className="flex justify-between items-center">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900">Notifications</h2>
-          <p className="text-gray-600">Manage system notifications and alerts</p>
+          <h1 className="text-3xl font-bold text-gray-900">Notification Management</h1>
+          <p className="text-gray-600">Manage system notifications and announcements</p>
         </div>
-        <div className="flex gap-2">
-          {unreadCount > 0 && (
-            <Button onClick={handleMarkAllRead} variant="outline">
-              <Check className="h-4 w-4 mr-2" />
-              Mark All Read
-            </Button>
-          )}
-          <Button onClick={() => setShowCreateDialog(true)}>
+        <div className="flex space-x-2">
+          <button
+            onClick={loadData}
+            className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+          >
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Refresh
+          </button>
+          <button
+            onClick={exportData}
+            className="flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+          >
+            <Download className="h-4 w-4 mr-2" />
+            Export
+          </button>
+          <button
+            onClick={() => setShowForm(true)}
+            className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+          >
             <Plus className="h-4 w-4 mr-2" />
             Create Notification
-          </Button>
+          </button>
         </div>
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center">
-              <div className="p-2 bg-blue-100 rounded-lg">
-                <Bell className="h-6 w-6 text-blue-600" />
-              </div>
-              <div className="ml-3">
-                <p className="text-sm font-medium text-gray-500">Total Notifications</p>
-                <p className="text-2xl font-semibold">{notifications.length}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center">
-              <div className="p-2 bg-red-100 rounded-lg">
-                <AlertCircle className="h-6 w-6 text-red-600" />
-              </div>
-              <div className="ml-3">
-                <p className="text-sm font-medium text-gray-500">Unread</p>
-                <p className="text-2xl font-semibold">{unreadCount}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center">
-              <div className="p-2 bg-green-100 rounded-lg">
-                <CheckCircle className="h-6 w-6 text-green-600" />
-              </div>
-              <div className="ml-3">
-                <p className="text-sm font-medium text-gray-500">Read</p>
-                <p className="text-2xl font-semibold">{notifications.length - unreadCount}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+      {/* Error Message */}
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+          <div className="flex items-center">
+            <AlertTriangle className="h-5 w-5 text-red-500 mr-2" />
+            <p className="text-red-600">{error}</p>
+          </div>
+        </div>
+      )}
 
-      {/* Search and Filters */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Search & Filter</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex gap-4 items-end">
-            <div className="flex-1">
-              <label className="block text-sm font-medium text-gray-700 mb-1">Search</label>
-              <Input
-                placeholder="Search notifications..."
+      {/* Filters */}
+      <div className="bg-white rounded-lg shadow p-4">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Type</label>
+            <select
+              value={filterType || ''}
+              onChange={(e) => setFilterType(e.target.value || null)}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2"
+            >
+              <option value="">All Types</option>
+              {notificationTypes.map((type) => (
+                <option key={type.value} value={type.value}>{type.label}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Priority</label>
+            <select
+              value={filterPriority || ''}
+              onChange={(e) => setFilterPriority(e.target.value || null)}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2"
+            >
+              <option value="">All Priorities</option>
+              {priorities.map((priority) => (
+                <option key={priority.value} value={priority.value}>{priority.label}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+            <select
+              value={filterStatus || ''}
+              onChange={(e) => setFilterStatus(e.target.value || null)}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2"
+            >
+              <option value="">All Statuses</option>
+              <option value="published">Published</option>
+              <option value="draft">Draft</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Search</label>
+            <div className="relative">
+              <Search className="h-4 w-4 absolute left-3 top-3 text-gray-400" />
+              <input
+                type="text"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="Search notifications..."
+                className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg"
               />
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Type</label>
-              <select
-                value={selectedType}
-                onChange={(e) => setSelectedType(e.target.value)}
-                className="w-32 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="">All Types</option>
-                <option value="info">Info</option>
-                <option value="success">Success</option>
-                <option value="warning">Warning</option>
-                <option value="error">Error</option>
-              </select>
-            </div>
-            <div className="flex items-center">
-              <input
-                type="checkbox"
-                id="unread_only"
-                checked={showUnreadOnly}
-                onChange={(e) => setShowUnreadOnly(e.target.checked)}
-                className="mr-2"
-              />
-              <label htmlFor="unread_only" className="text-sm text-gray-700">
-                Unread only
-              </label>
-            </div>
-            <Button onClick={handleSearch}>
-              <Search className="h-4 w-4 mr-2" />
-              Search
-            </Button>
           </div>
-        </CardContent>
-      </Card>
+          <div className="flex items-end">
+            <button
+              onClick={loadData}
+              className="w-full flex items-center justify-center px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700"
+            >
+              <Filter className="h-4 w-4 mr-2" />
+              Apply Filters
+            </button>
+          </div>
+        </div>
+      </div>
 
-      {/* Notifications List */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Notifications ({filteredNotifications.length})</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            {filteredNotifications && Array.isArray(filteredNotifications) && filteredNotifications.map((notification) => (
-              <div
-                key={notification.id}
-                className={`p-4 border rounded-lg ${
-                  notification.is_read ? 'bg-gray-50' : 'bg-white border-blue-200'
-                }`}
-              >
-                <div className="flex items-start justify-between">
-                  <div className="flex items-start gap-3">
-                    {getNotificationIcon(notification.type)}
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-1">
-                        <h4 className="font-medium text-gray-900">{notification.title}</h4>
-                        <Badge className={getNotificationBadgeColor(notification.type)}>
-                          {notification.type}
-                        </Badge>
-                        {!notification.is_read && (
-                          <Badge variant="outline" className="bg-blue-100 text-blue-800">
-                            New
-                          </Badge>
-                        )}
-                      </div>
-                      <p className="text-gray-600 text-sm mb-2">{notification.message}</p>
-                      <div className="flex items-center gap-4 text-xs text-gray-500">
-                        <span>{new Date(notification.created_at).toLocaleString()}</span>
-                        <span>to {notification.user_name}</span>
-                        {notification.action_url && (
-                          <a
-                            href={notification.action_url}
-                            className="text-blue-600 hover:text-blue-800"
-                          >
-                            View Action
-                          </a>
-                        )}
+      {/* Notifications Table */}
+      <div className="bg-white rounded-lg shadow overflow-hidden">
+        <table className="min-w-full divide-y divide-gray-200">
+          <thead className="bg-gray-50">
+            <tr>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Notification</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Priority</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Target</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Stats</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+            </tr>
+          </thead>
+          <tbody className="bg-white divide-y divide-gray-200">
+            {notifications.map((notification) => {
+              const TypeIcon = getTypeIcon(notification.type)
+              return (
+                <tr key={notification.id}>
+                  <td className="px-6 py-4">
+                    <div className="flex items-start">
+                      <TypeIcon className="h-5 w-5 text-blue-500 mr-2 mt-0.5" />
+                      <div>
+                        <div className="text-sm font-medium text-gray-900">{notification.title}</div>
+                        <div className="text-sm text-gray-500 max-w-xs truncate">{notification.message}</div>
+                        <div className="text-xs text-gray-400">
+                          By {notification.created_by_name || 'Unknown'} • {new Date(notification.created_at).toLocaleDateString()}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {!notification.is_read && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleMarkAsRead(notification.id)}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    <span className={`px-2 py-1 text-xs font-medium rounded-full ${getTypeColor(notification.type)}`}>
+                      {notification.type}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    <span className={`px-2 py-1 text-xs font-medium rounded-full ${getPriorityColor(notification.priority)}`}>
+                      {notification.priority}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    <div className="text-xs">
+                      <div className="font-medium">{notification.target_audience}</div>
+                      {notification.target_roles && notification.target_roles.length > 0 && (
+                        <div className="text-gray-400">Roles: {notification.target_roles.join(', ')}</div>
+                      )}
+                    </div>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    <div className="flex items-center">
+                      {notification.is_published ? (
+                        <CheckCircle className="h-4 w-4 text-green-500 mr-1" />
+                      ) : (
+                        <Clock className="h-4 w-4 text-gray-400 mr-1" />
+                      )}
+                      <span className={notification.is_published ? 'text-green-600' : 'text-gray-600'}>
+                        {notification.is_published ? 'Published' : 'Draft'}
+                      </span>
+                    </div>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    <div className="text-xs">
+                      <div>Read: {notification.read_count}</div>
+                      <div>Total: {notification.total_recipients}</div>
+                      <div className="text-gray-400">
+                        {notification.total_recipients > 0 ? 
+                          Math.round((notification.read_count / notification.total_recipients) * 100) : 0}% read
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    <div className="flex space-x-2">
+                      <button
+                        onClick={() => handlePublish(notification)}
+                        className={`${
+                          notification.is_published 
+                            ? 'text-orange-600 hover:text-orange-900' 
+                            : 'text-green-600 hover:text-green-900'
+                        }`}
+                        title={notification.is_published ? 'Unpublish' : 'Publish'}
                       >
-                        <Check className="h-4 w-4" />
-                      </Button>
-                    )}
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleDelete(notification.id)}
-                      className="text-red-600 hover:text-red-700"
-                    >
-                      <X className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
+                        {notification.is_published ? <XCircle className="h-4 w-4" /> : <CheckCircle className="h-4 w-4" />}
+                      </button>
+                      <button
+                        onClick={() => handleEdit(notification)}
+                        className="text-blue-600 hover:text-blue-900"
+                      >
+                        <Edit className="h-4 w-4" />
+                      </button>
+                      <button
+                        onClick={() => handleDelete(notification.id)}
+                        className="text-red-600 hover:text-red-900"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
 
-          {filteredNotifications && Array.isArray(filteredNotifications) && filteredNotifications.length === 0 && (
-            <div className="text-center py-12">
-              <Bell className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-              <h3 className="text-lg font-medium text-gray-900 mb-2">No notifications found</h3>
-              <p className="text-gray-600">No notifications match your search criteria.</p>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Create Notification Dialog */}
-      {showCreateDialog && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md">
-            <h3 className="text-lg font-semibold mb-4">Create Notification</h3>
-            <form onSubmit={handleCreate} className="space-y-4">
+      {/* Form Modal */}
+      {showForm && (
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">
+              {editingNotification ? 'Edit Notification' : 'Create New Notification'}
+            </h3>
+            <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">User ID</label>
-                <Input name="user_id" type="number" required />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Title</label>
-                <Input name="title" required />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Message</label>
-                <textarea
-                  name="message"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  rows={3}
+                <label className="block text-sm font-medium text-gray-700">Title</label>
+                <input
+                  type="text"
+                  placeholder="Notification title"
+                  value={formData.title}
+                  onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                  className="mt-1 block w-full border border-gray-300 rounded-lg px-3 py-2"
                   required
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Type</label>
-                <select
-                  name="type"
+                <label className="block text-sm font-medium text-gray-700">Message</label>
+                <textarea
+                  placeholder="Notification message"
+                  value={formData.message}
+                  onChange={(e) => setFormData({ ...formData, message: e.target.value })}
+                  className="mt-1 block w-full border border-gray-300 rounded-lg px-3 py-2"
+                  rows={4}
                   required
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="info">Info</option>
-                  <option value="success">Success</option>
-                  <option value="warning">Warning</option>
-                  <option value="error">Error</option>
-                </select>
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Type</label>
+                  <select
+                    value={formData.type}
+                    onChange={(e) => setFormData({ ...formData, type: e.target.value })}
+                    className="mt-1 block w-full border border-gray-300 rounded-lg px-3 py-2"
+                    required
+                  >
+                    {notificationTypes.map((type) => (
+                      <option key={type.value} value={type.value}>{type.label}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Priority</label>
+                  <select
+                    value={formData.priority}
+                    onChange={(e) => setFormData({ ...formData, priority: e.target.value })}
+                    className="mt-1 block w-full border border-gray-300 rounded-lg px-3 py-2"
+                    required
+                  >
+                    {priorities.map((priority) => (
+                      <option key={priority.value} value={priority.value}>{priority.label}</option>
+                    ))}
+                  </select>
+                </div>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Action URL (optional)</label>
-                <Input name="action_url" type="url" />
+                <label className="block text-sm font-medium text-gray-700">Target Audience</label>
+                <select
+                  value={formData.target_audience}
+                  onChange={(e) => setFormData({ ...formData, target_audience: e.target.value })}
+                  className="mt-1 block w-full border border-gray-300 rounded-lg px-3 py-2"
+                  required
+                >
+                  {targetAudiences.map((audience) => (
+                    <option key={audience.value} value={audience.value}>{audience.label}</option>
+                  ))}
+                </select>
               </div>
-              <div className="flex gap-2 pt-4">
-                <Button type="submit" className="flex-1">
-                  Create
-                </Button>
-                <Button
+
+              {/* Role Selection */}
+              {formData.target_audience === 'roles' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Select Roles</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {roles.map((role) => (
+                      <label key={role} className="flex items-center">
+                        <input
+                          type="checkbox"
+                          checked={formData.target_roles.includes(role)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setFormData({ ...formData, target_roles: [...formData.target_roles, role] })
+                            } else {
+                              setFormData({ ...formData, target_roles: formData.target_roles.filter(r => r !== role) })
+                            }
+                          }}
+                          className="mr-2"
+                        />
+                        <span className="text-sm text-gray-700 capitalize">{role}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Department Selection */}
+              {formData.target_audience === 'departments' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Select Departments</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {departments.map((dept) => (
+                      <label key={dept.id} className="flex items-center">
+                        <input
+                          type="checkbox"
+                          checked={formData.target_departments.includes(dept.id)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setFormData({ ...formData, target_departments: [...formData.target_departments, dept.id] })
+                            } else {
+                              setFormData({ ...formData, target_departments: formData.target_departments.filter(d => d !== dept.id) })
+                            }
+                          }}
+                          className="mr-2"
+                        />
+                        <span className="text-sm text-gray-700">{dept.name}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Class Selection */}
+              {formData.target_audience === 'classes' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Select Classes</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {classes.map((cls) => (
+                      <label key={cls.id} className="flex items-center">
+                        <input
+                          type="checkbox"
+                          checked={formData.target_classes.includes(cls.id)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setFormData({ ...formData, target_classes: [...formData.target_classes, cls.id] })
+                            } else {
+                              setFormData({ ...formData, target_classes: formData.target_classes.filter(c => c !== cls.id) })
+                            }
+                          }}
+                          className="mr-2"
+                        />
+                        <span className="text-sm text-gray-700">{cls.name}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* User Selection */}
+              {formData.target_audience === 'users' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Select Users</label>
+                  <div className="max-h-40 overflow-y-auto border border-gray-300 rounded-lg p-2">
+                    {users.map((user) => (
+                      <label key={user.id} className="flex items-center mb-2">
+                        <input
+                          type="checkbox"
+                          checked={formData.target_users.includes(user.id)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setFormData({ ...formData, target_users: [...formData.target_users, user.id] })
+                            } else {
+                              setFormData({ ...formData, target_users: formData.target_users.filter(u => u !== user.id) })
+                            }
+                          }}
+                          className="mr-2"
+                        />
+                        <span className="text-sm text-gray-700">{user.full_name} ({user.role})</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Schedule At (Optional)</label>
+                  <input
+                    type="datetime-local"
+                    value={formData.scheduled_at}
+                    onChange={(e) => setFormData({ ...formData, scheduled_at: e.target.value })}
+                    className="mt-1 block w-full border border-gray-300 rounded-lg px-3 py-2"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Expires At (Optional)</label>
+                  <input
+                    type="datetime-local"
+                    value={formData.expires_at}
+                    onChange={(e) => setFormData({ ...formData, expires_at: e.target.value })}
+                    className="mt-1 block w-full border border-gray-300 rounded-lg px-3 py-2"
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center">
+                <input
+                  type="checkbox"
+                  checked={formData.is_published}
+                  onChange={(e) => setFormData({ ...formData, is_published: e.target.checked })}
+                  className="mr-2"
+                />
+                <label className="text-sm font-medium text-gray-700">Publish immediately</label>
+              </div>
+
+              <div className="flex justify-end space-x-2">
+                <button
                   type="button"
-                  variant="outline"
-                  onClick={() => setShowCreateDialog(false)}
-                  className="flex-1"
+                  onClick={() => {
+                    setShowForm(false)
+                    setEditingNotification(null)
+                    setFormData({
+                      title: '',
+                      message: '',
+                      type: 'info',
+                      priority: 'medium',
+                      target_audience: 'all',
+                      target_roles: [],
+                      target_departments: [],
+                      target_classes: [],
+                      target_users: [],
+                      is_published: false,
+                      scheduled_at: '',
+                      expires_at: ''
+                    })
+                  }}
+                  className="px-4 py-2 text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50"
                 >
                   Cancel
-                </Button>
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                >
+                  {editingNotification ? 'Update' : 'Create'}
+                </button>
               </div>
             </form>
           </div>
@@ -421,5 +760,3 @@ export default function NotificationsPage() {
     </div>
   )
 }
-
-

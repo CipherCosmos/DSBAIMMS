@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, HTTPException, Query, UploadFile, File
+from fastapi import FastAPI, Depends, HTTPException, Query, UploadFile, File, Request
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func, and_, or_
@@ -9,10 +9,10 @@ import pandas as pd
 from io import BytesIO, StringIO
 
 from shared.database import get_db
-from shared.models import Department, User, AuditLog, Class, Subject, PO, CO, COPOMapping, Question, Mark
-from shared.auth import RoleChecker
+from shared.models import Department, User, AuditLog, Class, Subject, PO, CO, COPOMapping, Question, Mark, Semester, StudentSemesterEnrollment
+from shared.auth import require_any_role, require_admin, require_admin_or_hod, require_admin_hod_or_teacher, RoleChecker
 from shared.permissions import PermissionChecker, Permission
-from shared.schemas import DepartmentResponse, DepartmentCreate, DepartmentUpdate, ClassResponse, ClassCreate, ClassUpdate, SubjectResponse, SubjectCreate, SubjectUpdate, POResponse, POCreate, POUpdate, COResponse, COCreate, COUpdate, COPOMappingResponse, COPOMappingCreate, COPOMappingUpdate
+from shared.schemas import DepartmentResponse, DepartmentCreate, DepartmentUpdate, ClassResponse, ClassCreate, ClassUpdate, SubjectResponse, SubjectCreate, SubjectUpdate, POResponse, POCreate, POUpdate, COResponse, COCreate, COUpdate, COPOMappingResponse, COPOMappingCreate, COPOMappingUpdate, SemesterResponse, SemesterCreate, SemesterUpdate, StudentSemesterEnrollmentResponse, StudentSemesterEnrollmentCreate, StudentSemesterEnrollmentUpdate
 
 # Enhanced schemas for smart CO/PO management
 class SmartCOCreate(BaseModel):
@@ -263,22 +263,42 @@ def get_co_po_recommendations(department_id: int, db: Session) -> List[COPORecom
 async def root():
     return {"message": "Department Service is running", "status": "healthy"}
 
+@app.get("/debug-auth")
+async def debug_auth(request: Request):
+    """Debug endpoint to test authentication"""
+    try:
+        auth_header = request.headers.get("Authorization")
+        if not auth_header:
+            return {"error": "No Authorization header"}
+        
+        if not auth_header.startswith("Bearer "):
+            return {"error": "Invalid Authorization header format"}
+        
+        token = auth_header.split(" ")[1]
+        from shared.auth import verify_token
+        payload = verify_token(token)
+        return {"success": True, "payload": payload}
+    except Exception as e:
+        return {"error": str(e)}
+
 # API Gateway routes (for Kong)
 @app.get("/api/departments", response_model=List[DepartmentResponse])
 async def get_departments_api(
+    request: Request,
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
     db: Session = Depends(get_db),
-    current_user_id: int = Depends(RoleChecker(["admin", "hod"]))
+    current_user_id: int = Depends(require_any_role)
 ):
     """Get departments through API gateway"""
     return await get_departments(skip, limit, db, current_user_id)
 
 @app.post("/api/departments", response_model=DepartmentResponse)
 async def create_department_api(
+    request: Request,
     dept_data: DepartmentCreate,
     db: Session = Depends(get_db),
-    current_user_id: int = Depends(RoleChecker(["admin"]))
+    current_user_id: int = Depends(require_admin)
 ):
     """Create department through API gateway"""
     return await create_department(dept_data, db, current_user_id)
@@ -766,18 +786,20 @@ async def get_department_stats(
 
 @app.get("/api/classes", response_model=List[ClassResponse])
 async def get_classes(
+    request: Request,
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
     department_id: Optional[int] = Query(None),
     year: Optional[int] = Query(None),
-    semester: Optional[int] = Query(None),
+    semester_id: Optional[int] = Query(None),
     db: Session = Depends(get_db),
-    current_user_id: int = Depends(RoleChecker(["admin", "hod", "teacher", "student"]))
+    current_user_id: int = Depends(require_any_role)
 ):
     current_user = db.query(User).filter(User.id == current_user_id).first()
     
     query = db.query(Class).options(
         joinedload(Class.department),
+        joinedload(Class.semester),
         joinedload(Class.class_teacher),
         joinedload(Class.cr)
     )
@@ -800,32 +822,39 @@ async def get_classes(
         query = query.filter(Class.department_id == department_id)
     if year:
         query = query.filter(Class.year == year)
-    if semester:
-        query = query.filter(Class.semester == semester)
+    if semester_id:
+        query = query.filter(Class.semester_id == semester_id)
     
     classes = query.offset(skip).limit(limit).all()
     
     result = []
     for cls in classes:
+        # Get students count for this class
+        students_count = db.query(StudentSemesterEnrollment).filter(
+            StudentSemesterEnrollment.class_id == cls.id
+        ).count()
+        
         result.append(ClassResponse(
             id=cls.id,
             name=cls.name,
             year=cls.year,
-            semester=cls.semester,
+            semester_id=cls.semester_id,
             section=cls.section,
             department_id=cls.department_id,
             class_teacher_id=cls.class_teacher_id,
             cr_id=cls.cr_id,
             department_name=cls.department.name if cls.department else "",
+            semester_name=cls.semester.name if cls.semester else "",
             class_teacher_name=cls.class_teacher.full_name if cls.class_teacher else None,
             cr_name=cls.cr.full_name if cls.cr else None,
+            students_count=students_count,
             created_at=cls.created_at,
             updated_at=cls.updated_at
         ))
     
     return result
 
-@app.post("/classes", response_model=ClassResponse)
+@app.post("/api/classes", response_model=ClassResponse)
 async def create_class(
     class_data: ClassCreate,
     db: Session = Depends(get_db),
@@ -842,12 +871,17 @@ async def create_class(
     if current_user.role == "hod" and class_data.department_id != current_user.department_id:
         raise HTTPException(status_code=403, detail="Access denied")
     
-    # Check if class name already exists in the same department
+    # Check if semester exists
+    semester = db.query(Semester).filter(Semester.id == class_data.semester_id).first()
+    if not semester:
+        raise HTTPException(status_code=404, detail="Semester not found")
+    
+    # Check if class name already exists in the same department and semester
     existing = db.query(Class).filter(
         Class.name == class_data.name,
         Class.department_id == class_data.department_id,
         Class.year == class_data.year,
-        Class.semester == class_data.semester,
+        Class.semester_id == class_data.semester_id,
         Class.section == class_data.section
     ).first()
     
@@ -866,14 +900,16 @@ async def create_class(
         id=new_class.id,
         name=new_class.name,
         year=new_class.year,
-        semester=new_class.semester,
+        semester_id=new_class.semester_id,
         section=new_class.section,
         department_id=new_class.department_id,
         class_teacher_id=new_class.class_teacher_id,
         cr_id=new_class.cr_id,
         department_name=department.name,
+        semester_name=semester.name,
         class_teacher_name=None,  # Will be populated if needed
         cr_name=None,  # Will be populated if needed
+        students_count=0,
         created_at=new_class.created_at,
         updated_at=new_class.updated_at
     )
@@ -888,6 +924,7 @@ async def get_class(
     
     class_obj = db.query(Class).options(
         joinedload(Class.department),
+        joinedload(Class.semester),
         joinedload(Class.class_teacher),
         joinedload(Class.cr)
     ).filter(Class.id == class_id).first()
@@ -906,23 +943,30 @@ async def get_class(
     elif current_user.role == "student" and class_obj.id != current_user.class_id:
         raise HTTPException(status_code=403, detail="Access denied")
     
+    # Get students count for this class
+    students_count = db.query(StudentSemesterEnrollment).filter(
+        StudentSemesterEnrollment.class_id == class_obj.id
+    ).count()
+    
     return ClassResponse(
         id=class_obj.id,
         name=class_obj.name,
         year=class_obj.year,
-        semester=class_obj.semester,
+        semester_id=class_obj.semester_id,
         section=class_obj.section,
         department_id=class_obj.department_id,
         class_teacher_id=class_obj.class_teacher_id,
         cr_id=class_obj.cr_id,
         department_name=class_obj.department.name if class_obj.department else "",
+        semester_name=class_obj.semester.name if class_obj.semester else "",
         class_teacher_name=class_obj.class_teacher.full_name if class_obj.class_teacher else None,
         cr_name=class_obj.cr.full_name if class_obj.cr else None,
+        students_count=students_count,
         created_at=class_obj.created_at,
         updated_at=class_obj.updated_at
     )
 
-@app.put("/classes/{class_id}", response_model=ClassResponse)
+@app.put("/api/classes/{class_id}", response_model=ClassResponse)
 async def update_class(
     class_id: int,
     class_data: ClassUpdate,
@@ -966,7 +1010,7 @@ async def update_class(
         updated_at=class_obj.updated_at
     )
 
-@app.delete("/classes/{class_id}")
+@app.delete("/api/classes/{class_id}")
 async def delete_class(
     class_id: int,
     db: Session = Depends(get_db),
@@ -999,20 +1043,22 @@ async def delete_class(
 
 @app.get("/api/subjects", response_model=List[SubjectResponse])
 async def get_subjects(
+    request: Request,
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
     department_id: Optional[int] = Query(None),
     class_id: Optional[int] = Query(None),
+    semester_id: Optional[int] = Query(None),
     teacher_id: Optional[int] = Query(None),
     is_active: Optional[bool] = Query(None),
     db: Session = Depends(get_db),
-    current_user_id: int = Depends(RoleChecker(["admin", "hod", "teacher", "student"]))
+    current_user_id: int = Depends(require_any_role)
 ):
     current_user = db.query(User).filter(User.id == current_user_id).first()
     
     query = db.query(Subject).options(
         joinedload(Subject.department),
-        joinedload(Subject.class_ref),
+        joinedload(Subject.class_ref).joinedload(Class.semester),
         joinedload(Subject.teacher)
     )
     
@@ -1023,14 +1069,19 @@ async def get_subjects(
         # Teachers can see subjects they teach
         query = query.filter(Subject.teacher_id == current_user_id)
     elif current_user.role == "student":
-        # Students can see subjects in their class
-        query = query.filter(Subject.class_id == current_user.class_id)
+        # Students can see subjects in their enrolled classes
+        student_enrollments = db.query(StudentSemesterEnrollment.class_id).filter(
+            StudentSemesterEnrollment.student_id == current_user_id
+        ).subquery()
+        query = query.filter(Subject.class_id.in_(student_enrollments))
     
     # Apply additional filters
     if department_id:
         query = query.filter(Subject.department_id == department_id)
     if class_id:
         query = query.filter(Subject.class_id == class_id)
+    if semester_id:
+        query = query.join(Class).filter(Class.semester_id == semester_id)
     if teacher_id:
         query = query.filter(Subject.teacher_id == teacher_id)
     if is_active is not None:
@@ -1061,7 +1112,7 @@ async def get_subjects(
     
     return result
 
-@app.post("/subjects", response_model=SubjectResponse)
+@app.post("/api/subjects", response_model=SubjectResponse)
 async def create_subject(
     subject_data: SubjectCreate,
     db: Session = Depends(get_db),
@@ -1074,14 +1125,25 @@ async def create_subject(
     if not department:
         raise HTTPException(status_code=404, detail="Department not found")
     
+    # Check if class exists and belongs to the same department
+    class_obj = db.query(Class).filter(Class.id == subject_data.class_id).first()
+    if not class_obj:
+        raise HTTPException(status_code=404, detail="Class not found")
+    
+    if class_obj.department_id != subject_data.department_id:
+        raise HTTPException(status_code=400, detail="Class does not belong to the specified department")
+    
     # HOD can only create subjects in their own department
     if current_user.role == "hod" and subject_data.department_id != current_user.department_id:
         raise HTTPException(status_code=403, detail="Access denied")
     
-    # Check if subject code already exists
-    existing = db.query(Subject).filter(Subject.code == subject_data.code).first()
+    # Check if subject code already exists in the same department
+    existing = db.query(Subject).filter(
+        Subject.code == subject_data.code,
+        Subject.department_id == subject_data.department_id
+    ).first()
     if existing:
-        raise HTTPException(status_code=400, detail="Subject code already exists")
+        raise HTTPException(status_code=400, detail="Subject code already exists in this department")
     
     new_subject = Subject(**subject_data.dict())
     db.add(new_subject)
@@ -1106,8 +1168,8 @@ async def create_subject(
         created_at=new_subject.created_at,
         updated_at=new_subject.updated_at,
         department_name=department.name,
-        class_name=None,  # Will be populated if needed
-        teacher_name=None  # Will be populated if needed
+        class_name=class_obj.name,
+        teacher_name=class_obj.class_teacher.full_name if class_obj.class_teacher else None
     )
 
 @app.get("/api/subjects/{subject_id}", response_model=SubjectResponse)
@@ -1154,7 +1216,7 @@ async def get_subject(
         teacher_name=subject.teacher.full_name if subject.teacher else None
     )
 
-@app.put("/subjects/{subject_id}", response_model=SubjectResponse)
+@app.put("/api/subjects/{subject_id}", response_model=SubjectResponse)
 async def update_subject(
     subject_id: int,
     subject_data: SubjectUpdate,
@@ -1201,7 +1263,7 @@ async def update_subject(
         teacher_name=subject.teacher.full_name if subject.teacher else None
     )
 
-@app.delete("/subjects/{subject_id}")
+@app.delete("/api/subjects/{subject_id}")
 async def delete_subject(
     subject_id: int,
     db: Session = Depends(get_db),
@@ -2155,6 +2217,584 @@ async def get_co_po_recommendations_endpoint(
     
     recommendations = get_co_po_recommendations(department_id, db)
     return recommendations
+
+# Semester Management Endpoints
+@app.get("/api/semesters", response_model=List[SemesterResponse])
+async def get_semesters(
+    department_id: Optional[int] = None,
+    academic_year: Optional[str] = None,
+    is_active: Optional[bool] = None,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=1000),
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(RoleChecker(["admin", "hod", "teacher", "student"]))
+):
+    """Get all semesters with optional filtering"""
+    current_user = db.query(User).filter(User.id == current_user_id).first()
+    
+    query = db.query(Semester).options(
+        joinedload(Semester.department),
+        joinedload(Semester.classes),
+        joinedload(Semester.student_enrollments)
+    )
+    
+    # Apply role-based filters
+    if current_user.role == "hod":
+        query = query.filter(Semester.department_id == current_user.department_id)
+    elif current_user.role == "teacher":
+        query = query.filter(Semester.department_id == current_user.department_id)
+    elif current_user.role == "student":
+        # Students can only see semesters they're enrolled in
+        student_enrollments = db.query(StudentSemesterEnrollment.semester_id).filter(
+            StudentSemesterEnrollment.student_id == current_user_id
+        ).subquery()
+        query = query.filter(Semester.id.in_(student_enrollments))
+    
+    # Apply additional filters
+    if department_id:
+        query = query.filter(Semester.department_id == department_id)
+    if academic_year:
+        query = query.filter(Semester.academic_year == academic_year)
+    if is_active is not None:
+        query = query.filter(Semester.is_active == is_active)
+    
+    semesters = query.offset(skip).limit(limit).all()
+    
+    # Build response with additional data
+    semester_responses = []
+    for semester in semesters:
+        classes_count = len(semester.classes) if semester.classes else 0
+        students_count = len(semester.student_enrollments) if semester.student_enrollments else 0
+        
+        semester_responses.append(SemesterResponse(
+            id=semester.id,
+            department_id=semester.department_id,
+            semester_number=semester.semester_number,
+            academic_year=semester.academic_year,
+            name=semester.name,
+            start_date=semester.start_date,
+            end_date=semester.end_date,
+            is_active=semester.is_active,
+            is_completed=semester.is_completed,
+            department_name=semester.department.name if semester.department else "",
+            classes_count=classes_count,
+            students_count=students_count,
+            created_at=semester.created_at,
+            updated_at=semester.updated_at
+        ))
+    
+    return semester_responses
+
+@app.get("/api/semesters/{semester_id}", response_model=SemesterResponse)
+async def get_semester(
+    semester_id: int,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(RoleChecker(["admin", "hod", "teacher", "student"]))
+):
+    """Get a specific semester by ID"""
+    current_user = db.query(User).filter(User.id == current_user_id).first()
+    
+    semester = db.query(Semester).options(
+        joinedload(Semester.department),
+        joinedload(Semester.classes),
+        joinedload(Semester.student_enrollments)
+    ).filter(Semester.id == semester_id).first()
+    
+    if not semester:
+        raise HTTPException(status_code=404, detail="Semester not found")
+    
+    # Apply role-based access control
+    if current_user.role == "hod" and semester.department_id != current_user.department_id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    elif current_user.role == "teacher" and semester.department_id != current_user.department_id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    elif current_user.role == "student":
+        # Check if student is enrolled in this semester
+        enrollment = db.query(StudentSemesterEnrollment).filter(
+            StudentSemesterEnrollment.student_id == current_user_id,
+            StudentSemesterEnrollment.semester_id == semester_id
+        ).first()
+        if not enrollment:
+            raise HTTPException(status_code=403, detail="Access denied")
+    
+    classes_count = len(semester.classes) if semester.classes else 0
+    students_count = len(semester.student_enrollments) if semester.student_enrollments else 0
+    
+    return SemesterResponse(
+        id=semester.id,
+        department_id=semester.department_id,
+        semester_number=semester.semester_number,
+        academic_year=semester.academic_year,
+        name=semester.name,
+        start_date=semester.start_date,
+        end_date=semester.end_date,
+        is_active=semester.is_active,
+        is_completed=semester.is_completed,
+        department_name=semester.department.name if semester.department else "",
+        classes_count=classes_count,
+        students_count=students_count,
+        created_at=semester.created_at,
+        updated_at=semester.updated_at
+    )
+
+@app.post("/api/semesters", response_model=SemesterResponse)
+async def create_semester(
+    semester: SemesterCreate,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(RoleChecker(["admin", "hod"]))
+):
+    """Create a new semester"""
+    current_user = db.query(User).filter(User.id == current_user_id).first()
+    
+    # Check if department exists
+    department = db.query(Department).filter(Department.id == semester.department_id).first()
+    if not department:
+        raise HTTPException(status_code=404, detail="Department not found")
+    
+    # Apply role-based access control
+    if current_user.role == "hod" and semester.department_id != current_user.department_id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    # Check if semester already exists
+    existing_semester = db.query(Semester).filter(
+        Semester.department_id == semester.department_id,
+        Semester.semester_number == semester.semester_number,
+        Semester.academic_year == semester.academic_year
+    ).first()
+    
+    if existing_semester:
+        raise HTTPException(status_code=400, detail="Semester already exists for this department and academic year")
+    
+    # Create semester
+    db_semester = Semester(
+        department_id=semester.department_id,
+        semester_number=semester.semester_number,
+        academic_year=semester.academic_year,
+        name=semester.name,
+        start_date=semester.start_date,
+        end_date=semester.end_date
+    )
+    
+    db.add(db_semester)
+    db.commit()
+    db.refresh(db_semester)
+    
+    # Log audit
+    log_audit(db, current_user_id, "CREATE", "semester", db_semester.id, None, {
+        "name": db_semester.name,
+        "department_id": db_semester.department_id,
+        "semester_number": db_semester.semester_number
+    })
+    
+    return SemesterResponse(
+        id=db_semester.id,
+        department_id=db_semester.department_id,
+        semester_number=db_semester.semester_number,
+        academic_year=db_semester.academic_year,
+        name=db_semester.name,
+        start_date=db_semester.start_date,
+        end_date=db_semester.end_date,
+        is_active=db_semester.is_active,
+        is_completed=db_semester.is_completed,
+        department_name=department.name,
+        classes_count=0,
+        students_count=0,
+        created_at=db_semester.created_at,
+        updated_at=db_semester.updated_at
+    )
+
+@app.put("/api/semesters/{semester_id}", response_model=SemesterResponse)
+async def update_semester(
+    semester_id: int,
+    semester: SemesterUpdate,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(RoleChecker(["admin", "hod"]))
+):
+    """Update a semester"""
+    current_user = db.query(User).filter(User.id == current_user_id).first()
+    
+    db_semester = db.query(Semester).filter(Semester.id == semester_id).first()
+    if not db_semester:
+        raise HTTPException(status_code=404, detail="Semester not found")
+    
+    # Apply role-based access control
+    if current_user.role == "hod" and db_semester.department_id != current_user.department_id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    # Store old values for audit
+    old_values = {
+        "name": db_semester.name,
+        "is_active": db_semester.is_active,
+        "is_completed": db_semester.is_completed
+    }
+    
+    # Update semester
+    update_data = semester.dict(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(db_semester, field, value)
+    
+    db.commit()
+    db.refresh(db_semester)
+    
+    # Log audit
+    log_audit(db, current_user_id, "UPDATE", "semester", semester_id, old_values, update_data)
+    
+    # Get department name
+    department = db.query(Department).filter(Department.id == db_semester.department_id).first()
+    
+    return SemesterResponse(
+        id=db_semester.id,
+        department_id=db_semester.department_id,
+        semester_number=db_semester.semester_number,
+        academic_year=db_semester.academic_year,
+        name=db_semester.name,
+        start_date=db_semester.start_date,
+        end_date=db_semester.end_date,
+        is_active=db_semester.is_active,
+        is_completed=db_semester.is_completed,
+        department_name=department.name if department else "",
+        classes_count=0,
+        students_count=0,
+        created_at=db_semester.created_at,
+        updated_at=db_semester.updated_at
+    )
+
+@app.delete("/api/semesters/{semester_id}")
+async def delete_semester(
+    semester_id: int,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(RoleChecker(["admin", "hod"]))
+):
+    """Delete a semester"""
+    current_user = db.query(User).filter(User.id == current_user_id).first()
+    
+    db_semester = db.query(Semester).filter(Semester.id == semester_id).first()
+    if not db_semester:
+        raise HTTPException(status_code=404, detail="Semester not found")
+    
+    # Apply role-based access control
+    if current_user.role == "hod" and db_semester.department_id != current_user.department_id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    # Check if semester has classes or enrollments
+    classes_count = db.query(Class).filter(Class.semester_id == semester_id).count()
+    enrollments_count = db.query(StudentSemesterEnrollment).filter(StudentSemesterEnrollment.semester_id == semester_id).count()
+    
+    if classes_count > 0 or enrollments_count > 0:
+        raise HTTPException(status_code=400, detail="Cannot delete semester with existing classes or student enrollments")
+    
+    # Log audit
+    log_audit(db, current_user_id, "DELETE", "semester", semester_id, {
+        "name": db_semester.name,
+        "department_id": db_semester.department_id
+    }, None)
+    
+    db.delete(db_semester)
+    db.commit()
+    
+    return {"message": "Semester deleted successfully"}
+
+# Student Semester Enrollment Endpoints
+@app.get("/api/semester-enrollments", response_model=List[StudentSemesterEnrollmentResponse])
+async def get_semester_enrollments(
+    student_id: Optional[int] = None,
+    semester_id: Optional[int] = None,
+    status: Optional[str] = None,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=1000),
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(RoleChecker(["admin", "hod", "teacher", "student"]))
+):
+    """Get student semester enrollments"""
+    current_user = db.query(User).filter(User.id == current_user_id).first()
+    
+    query = db.query(StudentSemesterEnrollment).options(
+        joinedload(StudentSemesterEnrollment.student),
+        joinedload(StudentSemesterEnrollment.semester),
+        joinedload(StudentSemesterEnrollment.class_ref)
+    )
+    
+    # Apply role-based filters
+    if current_user.role == "student":
+        query = query.filter(StudentSemesterEnrollment.student_id == current_user_id)
+    elif current_user.role == "teacher":
+        # Teachers can see enrollments for their department
+        query = query.join(Semester).filter(Semester.department_id == current_user.department_id)
+    elif current_user.role == "hod":
+        # HODs can see enrollments for their department
+        query = query.join(Semester).filter(Semester.department_id == current_user.department_id)
+    
+    # Apply additional filters
+    if student_id:
+        query = query.filter(StudentSemesterEnrollment.student_id == student_id)
+    if semester_id:
+        query = query.filter(StudentSemesterEnrollment.semester_id == semester_id)
+    if status:
+        query = query.filter(StudentSemesterEnrollment.status == status)
+    
+    enrollments = query.offset(skip).limit(limit).all()
+    
+    enrollment_responses = []
+    for enrollment in enrollments:
+        enrollment_responses.append(StudentSemesterEnrollmentResponse(
+            id=enrollment.id,
+            student_id=enrollment.student_id,
+            semester_id=enrollment.semester_id,
+            class_id=enrollment.class_id,
+            enrollment_date=enrollment.enrollment_date,
+            status=enrollment.status,
+            final_grade=enrollment.final_grade,
+            gpa=enrollment.gpa,
+            attendance_percentage=enrollment.attendance_percentage,
+            student_name=enrollment.student.full_name if enrollment.student else "",
+            semester_name=enrollment.semester.name if enrollment.semester else "",
+            class_name=enrollment.class_ref.name if enrollment.class_ref else "",
+            created_at=enrollment.created_at,
+            updated_at=enrollment.updated_at
+        ))
+    
+    return enrollment_responses
+
+@app.post("/api/semester-enrollments", response_model=StudentSemesterEnrollmentResponse)
+async def create_semester_enrollment(
+    enrollment: StudentSemesterEnrollmentCreate,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(RoleChecker(["admin", "hod"]))
+):
+    """Enroll a student in a semester"""
+    current_user = db.query(User).filter(User.id == current_user_id).first()
+    
+    # Check if student exists
+    student = db.query(User).filter(User.id == enrollment.student_id).first()
+    if not student or student.role != "student":
+        raise HTTPException(status_code=404, detail="Student not found")
+    
+    # Check if semester exists
+    semester = db.query(Semester).filter(Semester.id == enrollment.semester_id).first()
+    if not semester:
+        raise HTTPException(status_code=404, detail="Semester not found")
+    
+    # Check if class exists
+    class_obj = db.query(Class).filter(Class.id == enrollment.class_id).first()
+    if not class_obj:
+        raise HTTPException(status_code=404, detail="Class not found")
+    
+    # Apply role-based access control
+    if current_user.role == "hod" and semester.department_id != current_user.department_id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    # Check if student is already enrolled in this semester
+    existing_enrollment = db.query(StudentSemesterEnrollment).filter(
+        StudentSemesterEnrollment.student_id == enrollment.student_id,
+        StudentSemesterEnrollment.semester_id == enrollment.semester_id
+    ).first()
+    
+    if existing_enrollment:
+        raise HTTPException(status_code=400, detail="Student is already enrolled in this semester")
+    
+    # Create enrollment
+    db_enrollment = StudentSemesterEnrollment(
+        student_id=enrollment.student_id,
+        semester_id=enrollment.semester_id,
+        class_id=enrollment.class_id,
+        status=enrollment.status
+    )
+    
+    db.add(db_enrollment)
+    db.commit()
+    db.refresh(db_enrollment)
+    
+    # Log audit
+    log_audit(db, current_user_id, "CREATE", "student_semester_enrollment", db_enrollment.id, None, {
+        "student_id": enrollment.student_id,
+        "semester_id": enrollment.semester_id,
+        "class_id": enrollment.class_id
+    })
+    
+    return StudentSemesterEnrollmentResponse(
+        id=db_enrollment.id,
+        student_id=db_enrollment.student_id,
+        semester_id=db_enrollment.semester_id,
+        class_id=db_enrollment.class_id,
+        enrollment_date=db_enrollment.enrollment_date,
+        status=db_enrollment.status,
+        final_grade=db_enrollment.final_grade,
+        gpa=db_enrollment.gpa,
+        attendance_percentage=db_enrollment.attendance_percentage,
+        student_name=student.full_name,
+        semester_name=semester.name,
+        class_name=class_obj.name,
+        created_at=db_enrollment.created_at,
+        updated_at=db_enrollment.updated_at
+    )
+
+# Student Promotion Workflow
+@app.post("/api/semesters/{semester_id}/promote-students")
+async def promote_students_to_next_semester(
+    semester_id: int,
+    next_semester_id: int,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(RoleChecker(["admin", "hod"]))
+):
+    """Promote all students from current semester to next semester"""
+    current_user = db.query(User).filter(User.id == current_user_id).first()
+    
+    # Get current semester
+    current_semester = db.query(Semester).filter(Semester.id == semester_id).first()
+    if not current_semester:
+        raise HTTPException(status_code=404, detail="Current semester not found")
+    
+    # Get next semester
+    next_semester = db.query(Semester).filter(Semester.id == next_semester_id).first()
+    if not next_semester:
+        raise HTTPException(status_code=404, detail="Next semester not found")
+    
+    # Apply role-based access control
+    if current_user.role == "hod" and current_semester.department_id != current_user.department_id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    # Check if semesters belong to same department
+    if current_semester.department_id != next_semester.department_id:
+        raise HTTPException(status_code=400, detail="Semesters must belong to the same department")
+    
+    # Get all active students in current semester
+    current_enrollments = db.query(StudentSemesterEnrollment).filter(
+        StudentSemesterEnrollment.semester_id == semester_id,
+        StudentSemesterEnrollment.status == "active"
+    ).all()
+    
+    if not current_enrollments:
+        raise HTTPException(status_code=400, detail="No active students found in current semester")
+    
+    # Get classes for next semester
+    next_semester_classes = db.query(Class).filter(Class.semester_id == next_semester_id).all()
+    if not next_semester_classes:
+        raise HTTPException(status_code=400, detail="No classes found in next semester")
+    
+    promoted_count = 0
+    errors = []
+    
+    try:
+        # Mark current semester as completed
+        current_semester.is_completed = True
+        current_semester.is_active = False
+        
+        # Activate next semester
+        next_semester.is_active = True
+        
+        # Promote each student
+        for enrollment in current_enrollments:
+            try:
+                # Find appropriate class in next semester (same section if possible)
+                next_class = next(
+                    (c for c in next_semester_classes if c.section == enrollment.class_ref.section), 
+                    next_semester_classes[0]  # Default to first class if section not found
+                )
+                
+                # Create new enrollment for next semester
+                new_enrollment = StudentSemesterEnrollment(
+                    student_id=enrollment.student_id,
+                    semester_id=next_semester_id,
+                    class_id=next_class.id,
+                    status="active"
+                )
+                
+                # Update current enrollment status
+                enrollment.status = "promoted"
+                
+                db.add(new_enrollment)
+                promoted_count += 1
+                
+            except Exception as e:
+                errors.append(f"Failed to promote student {enrollment.student_id}: {str(e)}")
+        
+        db.commit()
+        
+        # Log audit
+        log_audit(db, current_user_id, "PROMOTE", "semester", semester_id, {
+            "current_semester": current_semester.name,
+            "next_semester": next_semester.name
+        }, {
+            "promoted_count": promoted_count,
+            "errors_count": len(errors)
+        })
+        
+        return {
+            "message": f"Successfully promoted {promoted_count} students",
+            "promoted_count": promoted_count,
+            "errors": errors,
+            "current_semester": current_semester.name,
+            "next_semester": next_semester.name
+        }
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to promote students: {str(e)}")
+
+@app.get("/api/semesters/{semester_id}/promotion-status")
+async def get_promotion_status(
+    semester_id: int,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(RoleChecker(["admin", "hod", "teacher"]))
+):
+    """Get promotion status and statistics for a semester"""
+    current_user = db.query(User).filter(User.id == current_user_id).first()
+    
+    semester = db.query(Semester).filter(Semester.id == semester_id).first()
+    if not semester:
+        raise HTTPException(status_code=404, detail="Semester not found")
+    
+    # Apply role-based access control
+    if current_user.role == "hod" and semester.department_id != current_user.department_id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    # Get enrollment statistics
+    total_students = db.query(StudentSemesterEnrollment).filter(
+        StudentSemesterEnrollment.semester_id == semester_id
+    ).count()
+    
+    active_students = db.query(StudentSemesterEnrollment).filter(
+        StudentSemesterEnrollment.semester_id == semester_id,
+        StudentSemesterEnrollment.status == "active"
+    ).count()
+    
+    completed_students = db.query(StudentSemesterEnrollment).filter(
+        StudentSemesterEnrollment.semester_id == semester_id,
+        StudentSemesterEnrollment.status == "completed"
+    ).count()
+    
+    promoted_students = db.query(StudentSemesterEnrollment).filter(
+        StudentSemesterEnrollment.semester_id == semester_id,
+        StudentSemesterEnrollment.status == "promoted"
+    ).count()
+    
+    # Get next semester info
+    next_semester = db.query(Semester).filter(
+        Semester.department_id == semester.department_id,
+        Semester.semester_number == semester.semester_number + 1,
+        Semester.academic_year == semester.academic_year
+    ).first()
+    
+    return {
+        "semester": {
+            "id": semester.id,
+            "name": semester.name,
+            "academic_year": semester.academic_year,
+            "is_active": semester.is_active,
+            "is_completed": semester.is_completed
+        },
+        "statistics": {
+            "total_students": total_students,
+            "active_students": active_students,
+            "completed_students": completed_students,
+            "promoted_students": promoted_students
+        },
+        "next_semester": {
+            "id": next_semester.id if next_semester else None,
+            "name": next_semester.name if next_semester else None,
+            "exists": next_semester is not None
+        } if next_semester else None
+    }
 
 @app.get("/health")
 async def health_check():

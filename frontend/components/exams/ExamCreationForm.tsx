@@ -309,7 +309,7 @@ export default function ExamCreationForm({ onClose, onSuccess }: ExamCreationFor
                         <SelectValue placeholder="Select subject" />
                       </SelectTrigger>
                       <SelectContent>
-                        {subjects.map(subject => (
+                        {subjects.filter(subject => subject.id && subject.id.toString().trim() !== '').map(subject => (
                           <SelectItem key={subject.id} value={subject.id.toString()}>
                             {subject.name} ({subject.code})
                           </SelectItem>
@@ -324,7 +324,7 @@ export default function ExamCreationForm({ onClose, onSuccess }: ExamCreationFor
                         <SelectValue placeholder="Select class" />
                       </SelectTrigger>
                       <SelectContent>
-                        {classes.map(cls => (
+                        {classes.filter(cls => cls.id && cls.id.toString().trim() !== '').map(cls => (
                           <SelectItem key={cls.id} value={cls.id.toString()}>
                             {cls.name} - {cls.section}
                           </SelectItem>
@@ -559,7 +559,7 @@ export default function ExamCreationForm({ onClose, onSuccess }: ExamCreationFor
                             <SelectValue placeholder="Select CO" />
                           </SelectTrigger>
                           <SelectContent>
-                            {cos.map(co => (
+                            {cos.filter(co => co.id && co.id.toString().trim() !== '').map(co => (
                               <SelectItem key={co.id} value={co.id.toString()}>
                                 {co.name} - {co.description}
                               </SelectItem>

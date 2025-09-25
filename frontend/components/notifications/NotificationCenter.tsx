@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Bell, X, Check, AlertCircle, Info, CheckCircle, AlertTriangle } from 'lucide-react';
+import { apiClient } from '@/lib/api';
 
 interface Notification {
   id: number;
@@ -31,11 +32,8 @@ export default function NotificationCenter({ userId }: NotificationCenterProps) 
   const fetchNotifications = async () => {
     try {
       setLoading(true);
-      const response = await fetch('/api/notifications?limit=20');
-      if (response.ok) {
-        const data = await response.json();
-        setNotifications(data);
-      }
+      const data = await apiClient.getNotifications({ limit: 20 });
+      setNotifications(data);
     } catch (error) {
       console.error('Failed to fetch notifications:', error);
     } finally {
@@ -45,11 +43,8 @@ export default function NotificationCenter({ userId }: NotificationCenterProps) 
 
   const fetchUnreadCount = async () => {
     try {
-      const response = await fetch('/api/notifications/unread-count');
-      if (response.ok) {
-        const data = await response.json();
-        setUnreadCount(data.unread_count);
-      }
+      const data = await apiClient.getUnreadNotificationCount();
+      setUnreadCount(data.unread_count);
     } catch (error) {
       console.error('Failed to fetch unread count:', error);
     }
@@ -57,22 +52,13 @@ export default function NotificationCenter({ userId }: NotificationCenterProps) 
 
   const markAsRead = async (notificationId: number) => {
     try {
-      const response = await fetch(`/api/notifications/${notificationId}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ is_read: true }),
-      });
-
-      if (response.ok) {
-        setNotifications(prev =>
-          prev.map(notif =>
-            notif.id === notificationId ? { ...notif, is_read: true } : notif
-          )
-        );
-        setUnreadCount(prev => Math.max(0, prev - 1));
-      }
+      await apiClient.markNotificationAsRead(notificationId);
+      setNotifications(prev =>
+        prev.map(notif =>
+          notif.id === notificationId ? { ...notif, is_read: true } : notif
+        )
+      );
+      setUnreadCount(prev => Math.max(0, prev - 1));
     } catch (error) {
       console.error('Failed to mark notification as read:', error);
     }
@@ -80,16 +66,11 @@ export default function NotificationCenter({ userId }: NotificationCenterProps) 
 
   const markAllAsRead = async () => {
     try {
-      const response = await fetch('/api/notifications/mark-all-read', {
-        method: 'POST',
-      });
-
-      if (response.ok) {
-        setNotifications(prev =>
-          prev.map(notif => ({ ...notif, is_read: true }))
-        );
-        setUnreadCount(0);
-      }
+      await apiClient.markAllNotificationsAsRead();
+      setNotifications(prev =>
+        prev.map(notif => ({ ...notif, is_read: true }))
+      );
+      setUnreadCount(0);
     } catch (error) {
       console.error('Failed to mark all notifications as read:', error);
     }
@@ -97,14 +78,9 @@ export default function NotificationCenter({ userId }: NotificationCenterProps) 
 
   const deleteNotification = async (notificationId: number) => {
     try {
-      const response = await fetch(`/api/notifications/${notificationId}`, {
-        method: 'DELETE',
-      });
-
-      if (response.ok) {
-        setNotifications(prev => prev.filter(notif => notif.id !== notificationId));
-        setUnreadCount(prev => Math.max(0, prev - 1));
-      }
+      await apiClient.deleteNotification(notificationId);
+      setNotifications(prev => prev.filter(notif => notif.id !== notificationId));
+      setUnreadCount(prev => Math.max(0, prev - 1));
     } catch (error) {
       console.error('Failed to delete notification:', error);
     }

@@ -1,14 +1,14 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { useAuth } from '@/hooks/useAuth'
+import { useState, useEffect, useRef } from 'react'
 import { apiClient } from '@/lib/api'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
-import { Upload, Search, Download, Eye, Trash2, File, Image, FileText, Archive } from 'lucide-react'
-import { toast } from 'react-hot-toast'
+import { 
+  FolderOpen, Plus, Edit, Trash2, Save, X, Eye, 
+  RefreshCw, Download, Upload, Filter, Search,
+  BookOpen, Target, Award, Users, Calendar, Building,
+  FileText, BarChart3, Clock, CheckCircle, XCircle,
+  Image, File, FileSpreadsheet, FileVideo, FileAudio
+} from 'lucide-react'
 
 interface FileUpload {
   id: number
@@ -16,106 +16,219 @@ interface FileUpload {
   original_filename: string
   file_path: string
   file_size: number
-  mime_type: string
+  mime_type?: string
+  file_type?: string
   uploaded_by: number
-  entity_type?: string
-  entity_id?: number
-  is_public: boolean
-  created_at: string
   uploaded_by_name?: string
+  department_id?: number
+  department_name?: string
+  class_id?: number
+  class_name?: string
+  subject_id?: number
+  subject_name?: string
+  semester_id?: number
+  semester_name?: string
+  is_public: boolean
+  download_count: number
+  created_at: string
+  updated_at?: string
+}
+
+interface Department {
+  id: number
+  name: string
+  code: string
+}
+
+interface Class {
+  id: number
+  name: string
+  department_id: number
+  department_name?: string
+}
+
+interface Subject {
+  id: number
+  name: string
+  code: string
+  department_id: number
+}
+
+interface Semester {
+  id: number
+  name: string
+  department_id: number
+  department_name?: string
 }
 
 export default function FilesPage() {
-  const { user } = useAuth()
   const [files, setFiles] = useState<FileUpload[]>([])
+  const [departments, setDepartments] = useState<Department[]>([])
+  const [classes, setClasses] = useState<Class[]>([])
+  const [subjects, setSubjects] = useState<Subject[]>([])
+  const [semesters, setSemesters] = useState<Semester[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [showUploadForm, setShowUploadForm] = useState(false)
+  const [editingFile, setEditingFile] = useState<FileUpload | null>(null)
+  const [filterDepartment, setFilterDepartment] = useState<number | null>(null)
+  const [filterClass, setFilterClass] = useState<number | null>(null)
+  const [filterSubject, setFilterSubject] = useState<number | null>(null)
+  const [filterFileType, setFilterFileType] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
-  const [selectedType, setSelectedType] = useState('')
-  const [uploading, setUploading] = useState(false)
-  const [storageStats, setStorageStats] = useState<any>(null)
+  const [dragActive, setDragActive] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const [formData, setFormData] = useState({
+    department_id: 0,
+    class_id: 0,
+    subject_id: 0,
+    semester_id: 0,
+    is_public: false
+  })
+
+  const fileTypes = [
+    { value: 'document', label: 'Document', icon: FileText },
+    { value: 'image', label: 'Image', icon: Image },
+    { value: 'spreadsheet', label: 'Spreadsheet', icon: FileSpreadsheet },
+    { value: 'video', label: 'Video', icon: FileVideo },
+    { value: 'audio', label: 'Audio', icon: FileAudio },
+    { value: 'other', label: 'Other', icon: File }
+  ]
 
   useEffect(() => {
-    loadFiles()
-    loadStorageStats()
-  }, [])
+    loadData()
+  }, [filterDepartment, filterClass, filterSubject, filterFileType])
 
-  const loadFiles = async () => {
+  const loadData = async () => {
     try {
       setLoading(true)
-      const data = await apiClient.getFiles()
-      setFiles(data)
+      setError(null)
+
+      const [filesResponse, departmentsResponse, classesResponse, subjectsResponse, semestersResponse] = await Promise.all([
+        apiClient.get('/api/files'),
+        apiClient.get('/api/departments'),
+        apiClient.get('/api/classes'),
+        apiClient.get('/api/subjects'),
+        apiClient.get('/api/semesters')
+      ])
+
+      let filesData = filesResponse.data || []
+      const departmentsData = departmentsResponse.data || []
+      const classesData = classesResponse.data || []
+      const subjectsData = subjectsResponse.data || []
+      const semestersData = semestersResponse.data || []
+
+      // Apply filters
+      if (filterDepartment) {
+        filesData = filesData.filter((f: FileUpload) => f.department_id === filterDepartment)
+      }
+      if (filterClass) {
+        filesData = filesData.filter((f: FileUpload) => f.class_id === filterClass)
+      }
+      if (filterSubject) {
+        filesData = filesData.filter((f: FileUpload) => f.subject_id === filterSubject)
+      }
+      if (filterFileType) {
+        filesData = filesData.filter((f: FileUpload) => f.file_type === filterFileType)
+      }
+      if (searchTerm) {
+        filesData = filesData.filter((f: FileUpload) => 
+          f.original_filename.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          f.filename.toLowerCase().includes(searchTerm.toLowerCase())
+        )
+      }
+
+      setFiles(filesData)
+      setDepartments(departmentsData)
+      setClasses(classesData)
+      setSubjects(subjectsData)
+      setSemesters(semestersData)
     } catch (error) {
-      console.error('Error loading files:', error)
-      toast.error('Failed to load files')
+      console.error('Error loading data:', error)
+      setError('Failed to load files')
     } finally {
       setLoading(false)
     }
   }
 
-  const loadStorageStats = async () => {
-    try {
-      const stats = await apiClient.getStorageStats()
-      setStorageStats(stats)
-    } catch (error) {
-      console.error('Error loading data:', error)
-      // Set empty arrays to prevent map errors
-      if ('setSubjects' in this) setSubjects([])
-      if ('setClasses' in this) setClasses([])
-      if ('setDepartments' in this) setDepartments([])
-      if ('setExams' in this) setExams([])
-      if ('setMarks' in this) setMarks([])
-      if ('setUsers' in this) setUsers([])
-    }
-  }
-
-  const handleSearch = () => {
-    loadFiles()
-  }
-
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-
-    setUploading(true)
+  const handleFileUpload = async (file: File) => {
     try {
       const formData = new FormData()
       formData.append('file', file)
-      formData.append('entity_type', 'general')
-      formData.append('is_public', 'false')
+      formData.append('department_id', formData.department_id.toString())
+      formData.append('class_id', formData.class_id.toString())
+      formData.append('subject_id', formData.subject_id.toString())
+      formData.append('semester_id', formData.semester_id.toString())
+      formData.append('is_public', formData.is_public.toString())
 
-      await apiClient.uploadFile(formData)
-      toast.success('File uploaded successfully')
-      loadFiles()
-      loadStorageStats()
-    } catch (error: any) {
-      toast.error(error.detail || 'Failed to upload file')
-    } finally {
-      setUploading(false)
+      await apiClient.post('/api/files/upload', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data'
+        }
+      })
+      loadData()
+    } catch (error) {
+      console.error('Error uploading file:', error)
+      setError('Failed to upload file')
     }
   }
 
-  const handleDownload = async (file: FileUpload) => {
-    try {
-      const blob = await apiClient.downloadFile()
-      const url = window.URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = file.original_filename
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      window.URL.revokeObjectURL(url)
-    } catch (error: any) {
-      toast.error(error.detail || 'Failed to download file')
+  const handleDrag = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (e.type === 'dragenter' || e.type === 'dragover') {
+      setDragActive(true)
+    } else if (e.type === 'dragleave') {
+      setDragActive(false)
     }
   }
 
-  const handlePreview = async (file: FileUpload) => {
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setDragActive(false)
+
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      handleFileUpload(e.dataTransfer.files[0])
+    }
+  }
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      handleFileUpload(e.target.files[0])
+    }
+  }
+
+  const handleEdit = (file: FileUpload) => {
+    setEditingFile(file)
+    setFormData({
+      department_id: file.department_id || 0,
+      class_id: file.class_id || 0,
+      subject_id: file.subject_id || 0,
+      semester_id: file.semester_id || 0,
+      is_public: file.is_public
+    })
+    setShowUploadForm(true)
+  }
+
+  const handleUpdate = async (e: React.FormEvent) => {
+    e.preventDefault()
     try {
-      const previewUrl = await apiClient.previewFile()
-      window.open(previewUrl, '_blank')
-    } catch (error: any) {
-      toast.error(error.detail || 'Failed to preview file')
+      await apiClient.put(`/api/files/${editingFile?.id}`, formData)
+      setShowUploadForm(false)
+      setEditingFile(null)
+      setFormData({
+        department_id: 0,
+        class_id: 0,
+        subject_id: 0,
+        semester_id: 0,
+        is_public: false
+      })
+      loadData()
+    } catch (error) {
+      console.error('Error updating file:', error)
+      setError('Failed to update file')
     }
   }
 
@@ -123,20 +236,46 @@ export default function FilesPage() {
     if (!confirm('Are you sure you want to delete this file?')) return
 
     try {
-      await apiClient.deleteFile(id)
-      toast.success('File deleted successfully')
-      loadFiles()
-      loadStorageStats()
-    } catch (error: any) {
-      toast.error(error.detail || 'Failed to delete file')
+      await apiClient.delete(`/api/files/${id}`)
+      loadData()
+    } catch (error) {
+      console.error('Error deleting file:', error)
+      setError('Failed to delete file')
     }
   }
 
-  const getFileIcon = (mimeType: string) => {
-    if (mimeType.startsWith('image/')) return <Image className="h-6 w-6 text-green-600" />
-    if (mimeType.includes('pdf')) return <FileText className="h-6 w-6 text-red-600" />
-    if (mimeType.includes('zip') || mimeType.includes('rar')) return <Archive className="h-6 w-6 text-purple-600" />
-    return <File className="h-6 w-6 text-gray-600" />
+  const handleDownload = async (file: FileUpload) => {
+    try {
+      const response = await apiClient.get(`/api/files/${file.id}/download`, {
+        responseType: 'blob'
+      })
+      
+      const url = window.URL.createObjectURL(new Blob([response.data]))
+      const link = document.createElement('a')
+      link.href = url
+      link.download = file.original_filename
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      window.URL.revokeObjectURL(url)
+      
+      // Update download count
+      loadData()
+    } catch (error) {
+      console.error('Error downloading file:', error)
+      setError('Failed to download file')
+    }
+  }
+
+  const getFileIcon = (mimeType?: string) => {
+    if (!mimeType) return File
+    
+    if (mimeType.startsWith('image/')) return Image
+    if (mimeType.startsWith('video/')) return FileVideo
+    if (mimeType.startsWith('audio/')) return FileAudio
+    if (mimeType.includes('spreadsheet') || mimeType.includes('excel')) return FileSpreadsheet
+    if (mimeType.includes('pdf') || mimeType.includes('document')) return FileText
+    return File
   }
 
   const formatFileSize = (bytes: number) => {
@@ -147,209 +286,412 @@ export default function FilesPage() {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
   }
 
-  const filteredFiles = files.filter(file =>
-    file.original_filename.toLowerCase().includes(searchTerm.toLowerCase())
-  )
+  const exportData = async () => {
+    try {
+      const csvContent = convertToCSV(files)
+      const blob = new Blob([csvContent], { type: 'text/csv' })
+      const url = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = 'files.csv'
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      window.URL.revokeObjectURL(url)
+    } catch (error) {
+      console.error('Error exporting data:', error)
+      setError('Failed to export data')
+    }
+  }
+
+  const convertToCSV = (data: FileUpload[]) => {
+    if (data.length === 0) return ''
+    
+    const headers = ['ID', 'Filename', 'Original Filename', 'File Size', 'Type', 'Department', 'Class', 'Subject', 'Semester', 'Public', 'Downloads', 'Uploaded By', 'Created At']
+    const csvRows = [
+      headers.join(','),
+      ...data.map(row => [
+        row.id,
+        row.filename,
+        row.original_filename,
+        formatFileSize(row.file_size),
+        row.file_type || '',
+        row.department_name || '',
+        row.class_name || '',
+        row.subject_name || '',
+        row.semester_name || '',
+        row.is_public ? 'Yes' : 'No',
+        row.download_count,
+        row.uploaded_by_name || '',
+        row.created_at
+      ].join(','))
+    ]
+    return csvRows.join('\n')
+  }
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-96">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      <div className="flex items-center justify-center h-64">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
       </div>
     )
   }
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      {/* Header */}
+      <div className="flex justify-between items-center">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900">File Management</h2>
-          <p className="text-gray-600">Upload, manage, and organize files</p>
+          <h1 className="text-3xl font-bold text-gray-900">File Management</h1>
+          <p className="text-gray-600">Manage files and documents</p>
         </div>
-        <div className="flex gap-2">
-          <label className="cursor-pointer">
-            <Button asChild>
-              <span>
-                <Upload className="h-4 w-4 mr-2" />
-                Upload File
-              </span>
-            </Button>
-            <input
-              type="file"
-              className="hidden"
-              onChange={handleFileUpload}
-              disabled={uploading}
-            />
-          </label>
+        <div className="flex space-x-2">
+          <button
+            onClick={loadData}
+            className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+          >
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Refresh
+          </button>
+          <button
+            onClick={exportData}
+            className="flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+          >
+            <Download className="h-4 w-4 mr-2" />
+            Export
+          </button>
+          <button
+            onClick={() => setShowUploadForm(true)}
+            className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+          >
+            <Plus className="h-4 w-4 mr-2" />
+            Upload File
+          </button>
         </div>
       </div>
 
-      {/* Storage Stats */}
-      {storageStats && (
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center">
-                <div className="p-2 bg-blue-100 rounded-lg">
-                  <File className="h-6 w-6 text-blue-600" />
-                </div>
-                <div className="ml-3">
-                  <p className="text-sm font-medium text-gray-500">Total Files</p>
-                  <p className="text-2xl font-semibold">{storageStats.total_files}</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center">
-                <div className="p-2 bg-green-100 rounded-lg">
-                  <Archive className="h-6 w-6 text-green-600" />
-                </div>
-                <div className="ml-3">
-                  <p className="text-sm font-medium text-gray-500">Total Size</p>
-                  <p className="text-2xl font-semibold">{formatFileSize(storageStats.total_size)}</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center">
-                <div className="p-2 bg-yellow-100 rounded-lg">
-                  <FileText className="h-6 w-6 text-yellow-600" />
-                </div>
-                <div className="ml-3">
-                  <p className="text-sm font-medium text-gray-500">Available Space</p>
-                  <p className="text-2xl font-semibold">{formatFileSize(storageStats.available_space)}</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center">
-                <div className="p-2 bg-purple-100 rounded-lg">
-                  <Image className="h-6 w-6 text-purple-600" />
-                </div>
-                <div className="ml-3">
-                  <p className="text-sm font-medium text-gray-500">Usage</p>
-                  <p className="text-2xl font-semibold">{storageStats.usage_percentage}%</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+      {/* Error Message */}
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+          <div className="flex items-center">
+            <AlertCircle className="h-5 w-5 text-red-500 mr-2" />
+            <p className="text-red-600">{error}</p>
+          </div>
         </div>
       )}
 
-      {/* Search and Filters */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Search & Filter</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex gap-4 items-end">
-            <div className="flex-1">
-              <label className="block text-sm font-medium text-gray-700 mb-1">Search</label>
-              <Input
-                placeholder="Search files..."
+      {/* Filters */}
+      <div className="bg-white rounded-lg shadow p-4">
+        <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Department</label>
+            <select
+              value={filterDepartment || ''}
+              onChange={(e) => setFilterDepartment(Number(e.target.value) || null)}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2"
+            >
+              <option value="">All Departments</option>
+              {departments.map((dept) => (
+                <option key={dept.id} value={dept.id}>{dept.name}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Class</label>
+            <select
+              value={filterClass || ''}
+              onChange={(e) => setFilterClass(Number(e.target.value) || null)}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2"
+            >
+              <option value="">All Classes</option>
+              {classes.map((cls) => (
+                <option key={cls.id} value={cls.id}>{cls.name}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Subject</label>
+            <select
+              value={filterSubject || ''}
+              onChange={(e) => setFilterSubject(Number(e.target.value) || null)}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2"
+            >
+              <option value="">All Subjects</option>
+              {subjects.map((subject) => (
+                <option key={subject.id} value={subject.id}>{subject.name}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">File Type</label>
+            <select
+              value={filterFileType || ''}
+              onChange={(e) => setFilterFileType(e.target.value || null)}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2"
+            >
+              <option value="">All Types</option>
+              {fileTypes.map((type) => (
+                <option key={type.value} value={type.value}>{type.label}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Search</label>
+            <div className="relative">
+              <Search className="h-4 w-4 absolute left-3 top-3 text-gray-400" />
+              <input
+                type="text"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="Search files..."
+                className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg"
               />
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">File Type</label>
-              <select
-                value={selectedType}
-                onChange={(e) => setSelectedType(e.target.value)}
-                className="w-48 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="">All Types</option>
-                <option value="exam">Exam Files</option>
-                <option value="question">Question Files</option>
-                <option value="user">User Files</option>
-                <option value="general">General Files</option>
-              </select>
-            </div>
-            <Button onClick={handleSearch}>
-              <Search className="h-4 w-4 mr-2" />
-              Search
-            </Button>
           </div>
-        </CardContent>
-      </Card>
+          <div className="flex items-end">
+            <button
+              onClick={loadData}
+              className="w-full flex items-center justify-center px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700"
+            >
+              <Filter className="h-4 w-4 mr-2" />
+              Apply Filters
+            </button>
+          </div>
+        </div>
+      </div>
 
-      {/* Files List */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Files ({filteredFiles.length})</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            {filteredFiles && Array.isArray(filteredFiles) && filteredFiles.map((file) => (
-              <div
-                key={file.id}
-                className="flex items-center justify-between p-4 border border-gray-200 rounded-lg hover:bg-gray-50"
-              >
-                <div className="flex items-center gap-4">
-                  {getFileIcon(file.mime_type)}
-                  <div>
-                    <h4 className="font-medium text-gray-900">{file.original_filename}</h4>
-                    <div className="flex items-center gap-4 text-sm text-gray-500">
-                      <span>{formatFileSize(file.file_size)}</span>
-                      <span>{file.mime_type}</span>
-                      <span>{new Date(file.created_at).toLocaleDateString()}</span>
-                      <span>by {file.uploaded_by_name}</span>
+      {/* Upload Area */}
+      <div
+        className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
+          dragActive 
+            ? 'border-blue-500 bg-blue-50' 
+            : 'border-gray-300 hover:border-gray-400'
+        }`}
+        onDragEnter={handleDrag}
+        onDragLeave={handleDrag}
+        onDragOver={handleDrag}
+        onDrop={handleDrop}
+      >
+        <Upload className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+        <p className="text-lg font-medium text-gray-900 mb-2">
+          Drop your files here or click to browse
+        </p>
+        <p className="text-gray-600 mb-4">
+          Supported formats: PDF, DOC, DOCX, XLS, XLSX, PPT, PPTX, Images, Videos, Audio
+        </p>
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+        >
+          Choose Files
+        </button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          onChange={handleFileSelect}
+          className="hidden"
+        />
+      </div>
+
+      {/* Files Table */}
+      <div className="bg-white rounded-lg shadow overflow-hidden">
+        <table className="min-w-full divide-y divide-gray-200">
+          <thead className="bg-gray-50">
+            <tr>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">File</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Size</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Department</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Class</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Subject</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Downloads</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Visibility</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+            </tr>
+          </thead>
+          <tbody className="bg-white divide-y divide-gray-200">
+            {files.map((file) => {
+              const FileIcon = getFileIcon(file.mime_type)
+              return (
+                <tr key={file.id}>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <div className="flex items-center">
+                      <FileIcon className="h-5 w-5 text-blue-500 mr-2" />
+                      <div>
+                        <div className="text-sm font-medium text-gray-900">{file.original_filename}</div>
+                        <div className="text-sm text-gray-500">Uploaded by {file.uploaded_by_name || 'Unknown'}</div>
+                      </div>
                     </div>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Badge variant={file.is_public ? "default" : "secondary"}>
-                    {file.is_public ? "Public" : "Private"}
-                  </Badge>
-                  {file.entity_type && (
-                    <Badge variant="outline">
-                      {file.entity_type}
-                    </Badge>
-                  )}
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => handlePreview(file)}
-                  >
-                    <Eye className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => handleDownload(file)}
-                  >
-                    <Download className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => handleDelete(file.id)}
-                    className="text-red-600 hover:text-red-700"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
-            ))}
-          </div>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    {formatFileSize(file.file_size)}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    <span className="px-2 py-1 text-xs font-medium rounded-full bg-blue-100 text-blue-800">
+                      {file.file_type || 'Unknown'}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    <div className="flex items-center">
+                      <Building className="h-4 w-4 mr-1" />
+                      {file.department_name || 'N/A'}
+                    </div>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    <div className="flex items-center">
+                      <Users className="h-4 w-4 mr-1" />
+                      {file.class_name || 'N/A'}
+                    </div>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    <div className="flex items-center">
+                      <BookOpen className="h-4 w-4 mr-1" />
+                      {file.subject_name || 'N/A'}
+                    </div>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    <div className="flex items-center">
+                      <Download className="h-4 w-4 mr-1" />
+                      {file.download_count}
+                    </div>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    <span className={`px-2 py-1 text-xs font-medium rounded-full ${
+                      file.is_public ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
+                    }`}>
+                      {file.is_public ? 'Public' : 'Private'}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    <div className="flex space-x-2">
+                      <button
+                        onClick={() => handleDownload(file)}
+                        className="text-green-600 hover:text-green-900"
+                      >
+                        <Download className="h-4 w-4" />
+                      </button>
+                      <button
+                        onClick={() => handleEdit(file)}
+                        className="text-blue-600 hover:text-blue-900"
+                      >
+                        <Edit className="h-4 w-4" />
+                      </button>
+                      <button
+                        onClick={() => handleDelete(file.id)}
+                        className="text-red-600 hover:text-red-900"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
 
-          {filteredFiles && Array.isArray(filteredFiles) && filteredFiles.length === 0 && (
-            <div className="text-center py-12">
-              <File className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-              <h3 className="text-lg font-medium text-gray-900 mb-2">No files found</h3>
-              <p className="text-gray-600">Upload your first file to get started.</p>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      {/* Edit Form Modal */}
+      {showUploadForm && (
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">
+              {editingFile ? 'Edit File Details' : 'Upload File'}
+            </h3>
+            <form onSubmit={editingFile ? handleUpdate : (e) => e.preventDefault()} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Department</label>
+                <select
+                  value={formData.department_id}
+                  onChange={(e) => setFormData({ ...formData, department_id: Number(e.target.value) })}
+                  className="mt-1 block w-full border border-gray-300 rounded-lg px-3 py-2"
+                >
+                  <option value={0}>Select Department (Optional)</option>
+                  {departments.map((dept) => (
+                    <option key={dept.id} value={dept.id}>{dept.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Class</label>
+                <select
+                  value={formData.class_id}
+                  onChange={(e) => setFormData({ ...formData, class_id: Number(e.target.value) })}
+                  className="mt-1 block w-full border border-gray-300 rounded-lg px-3 py-2"
+                >
+                  <option value={0}>Select Class (Optional)</option>
+                  {classes.map((cls) => (
+                    <option key={cls.id} value={cls.id}>{cls.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Subject</label>
+                <select
+                  value={formData.subject_id}
+                  onChange={(e) => setFormData({ ...formData, subject_id: Number(e.target.value) })}
+                  className="mt-1 block w-full border border-gray-300 rounded-lg px-3 py-2"
+                >
+                  <option value={0}>Select Subject (Optional)</option>
+                  {subjects.map((subject) => (
+                    <option key={subject.id} value={subject.id}>{subject.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Semester</label>
+                <select
+                  value={formData.semester_id}
+                  onChange={(e) => setFormData({ ...formData, semester_id: Number(e.target.value) })}
+                  className="mt-1 block w-full border border-gray-300 rounded-lg px-3 py-2"
+                >
+                  <option value={0}>Select Semester (Optional)</option>
+                  {semesters.map((sem) => (
+                    <option key={sem.id} value={sem.id}>{sem.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex items-center">
+                <input
+                  type="checkbox"
+                  checked={formData.is_public}
+                  onChange={(e) => setFormData({ ...formData, is_public: e.target.checked })}
+                  className="mr-2"
+                />
+                <label className="text-sm font-medium text-gray-700">Public (visible to all users)</label>
+              </div>
+              <div className="flex justify-end space-x-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowUploadForm(false)
+                    setEditingFile(null)
+                    setFormData({
+                      department_id: 0,
+                      class_id: 0,
+                      subject_id: 0,
+                      semester_id: 0,
+                      is_public: false
+                    })
+                  }}
+                  className="px-4 py-2 text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                {editingFile && (
+                  <button
+                    type="submit"
+                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                  >
+                    Update
+                  </button>
+                )}
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
-
-

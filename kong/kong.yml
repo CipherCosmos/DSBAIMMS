@@ -46,6 +46,33 @@ services:
         strip_path: false
         path_handling: v0
 
+  - name: classes-service
+    url: http://classes-service:8004
+    routes:
+      - name: classes
+        paths:
+          - /api/classes
+        strip_path: true
+        path_handling: v0
+
+  - name: subjects-service
+    url: http://subjects-service:8005
+    routes:
+      - name: subjects
+        paths:
+          - /api/subjects
+        strip_path: true
+        path_handling: v0
+
+  - name: semesters-service
+    url: http://semesters-service:8006
+    routes:
+      - name: semesters
+        paths:
+          - /api/semesters
+        strip_path: true
+        path_handling: v0
+
   - name: user-stats-service
     url: http://user-service:8011/stats
     routes:
@@ -66,16 +93,6 @@ services:
       - name: departments
         paths:
           - /api/departments
-        strip_path: false
-        path_handling: v0
-      - name: classes
-        paths:
-          - /api/classes
-        strip_path: false
-        path_handling: v0
-      - name: subjects
-        paths:
-          - /api/subjects
         strip_path: false
         path_handling: v0
       - name: smart-cos
@@ -106,6 +123,11 @@ services:
       - name: co-po-recommendations
         paths:
           - /api/co-po-recommendations
+        strip_path: false
+        path_handling: v0
+      - name: semester-enrollments
+        paths:
+          - /api/semester-enrollments
         strip_path: false
         path_handling: v0
       - name: cos
@@ -392,5 +414,32 @@ services:
       - name: monitoring
         paths:
           - /api/monitoring
+        strip_path: true
+        path_handling: v0
+
+  # Enhanced Services
+  - name: enhanced-exam-service
+    url: http://exam-service:8013
+    routes:
+      - name: enhanced-exam
+        paths:
+          - /api/exams/*/optional-questions
+          - /api/exams/*/auto-calculation
+          - /api/exams/*/bulk-questions
+          - /api/exams/*/bulk-marks
+          - /api/exams/*/enhanced
+        strip_path: true
+        path_handling: v0
+
+  - name: enhanced-analytics-service
+    url: http://analytics-service:8015
+    routes:
+      - name: enhanced-analytics
+        paths:
+          - /api/analytics/dashboard-stats
+          - /api/analytics/co-attainment
+          - /api/analytics/po-attainment
+          - /api/analytics/student-performance
+          - /api/analytics/recalculate-attainment
         strip_path: true
         path_handling: v0

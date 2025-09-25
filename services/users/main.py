@@ -846,6 +846,168 @@ async def reset_user_password(
     
     return {"message": "Password reset successfully", "new_password": new_password}
 
+# Bulk Operations
+@app.post("/api/users/bulk-update")
+async def bulk_update_users(
+    request: dict,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(RoleChecker(["admin", "hod"]))
+):
+    """Bulk update users"""
+    current_user = db.query(User).filter(User.id == current_user_id).first()
+    user_ids = request.get("user_ids", [])
+    update_data = request.get("update_data", {})
+    
+    if not user_ids:
+        raise HTTPException(status_code=400, detail="No user IDs provided")
+    
+    updated_users = []
+    for user_id in user_ids:
+        user = db.query(User).filter(User.id == user_id).first()
+        if not user:
+            continue
+            
+        # Role-based access control
+        if current_user.role == "hod":
+            if user.department_id != current_user.department_id:
+                continue
+        
+        # Update user data
+        for field, value in update_data.items():
+            if hasattr(user, field) and field not in ["id", "created_at", "updated_at"]:
+                setattr(user, field, value)
+        
+        db.commit()
+        updated_users.append(user_id)
+    
+    # Log audit
+    log_audit(db, current_user_id, "BULK_UPDATE", "User", None, None, {
+        "user_ids": updated_users,
+        "update_data": update_data
+    })
+    
+    return {
+        "message": f"Updated {len(updated_users)} users",
+        "updated_users": updated_users
+    }
+
+@app.post("/api/users/bulk-delete")
+async def bulk_delete_users(
+    request: dict,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(RoleChecker(["admin"]))
+):
+    """Bulk delete users (Admin only)"""
+    user_ids = request.get("user_ids", [])
+    
+    if not user_ids:
+        raise HTTPException(status_code=400, detail="No user IDs provided")
+    
+    deleted_users = []
+    for user_id in user_ids:
+        user = db.query(User).filter(User.id == user_id).first()
+        if user and user.role != "admin":  # Prevent deleting admins
+            db.delete(user)
+            deleted_users.append(user_id)
+    
+    db.commit()
+    
+    # Log audit
+    log_audit(db, current_user_id, "BULK_DELETE", "User", None, None, {
+        "deleted_user_ids": deleted_users
+    })
+    
+    return {
+        "message": f"Deleted {len(deleted_users)} users",
+        "deleted_users": deleted_users
+    }
+
+@app.post("/api/users/export/{format}")
+async def export_users(
+    format: str,
+    role: Optional[str] = Query(None),
+    department_id: Optional[int] = Query(None),
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(RoleChecker(["admin", "hod"]))
+):
+    """Export users data"""
+    current_user = db.query(User).filter(User.id == current_user_id).first()
+    
+    # Build query with filters
+    query = db.query(User)
+    
+    if current_user.role == "hod":
+        query = query.filter(User.department_id == current_user.department_id)
+    
+    if role:
+        query = query.filter(User.role == role)
+    if department_id and current_user.role == "admin":
+        query = query.filter(User.department_id == department_id)
+    
+    users = query.all()
+    
+    if format.lower() == "csv":
+        import csv
+        from io import StringIO
+        
+        output = StringIO()
+        writer = csv.writer(output)
+        
+        # Write header
+        writer.writerow([
+            "ID", "Username", "Email", "Full Name", "Role", "Department", 
+            "Class", "Student ID", "Employee ID", "Phone", "Status", "Created At"
+        ])
+        
+        # Write data
+        for user in users:
+            writer.writerow([
+                user.id,
+                user.username,
+                user.email,
+                f"{user.first_name or ''} {user.last_name or ''}".strip(),
+                user.role,
+                user.department.name if user.department else "",
+                user.class_.name if user.class_ else "",
+                user.student_id or "",
+                user.employee_id or "",
+                user.phone or "",
+                "Active" if user.is_active else "Inactive",
+                user.created_at.isoformat() if user.created_at else ""
+            ])
+        
+        return {
+            "csv_data": output.getvalue(),
+            "total_users": len(users)
+        }
+    
+    elif format.lower() == "pdf":
+        # For PDF, return structured data that frontend can convert
+        pdf_data = []
+        for user in users:
+            pdf_data.append({
+                "id": user.id,
+                "username": user.username,
+                "email": user.email,
+                "full_name": f"{user.first_name or ''} {user.last_name or ''}".strip(),
+                "role": user.role,
+                "department": user.department.name if user.department else "",
+                "class": user.class_.name if user.class_ else "",
+                "student_id": user.student_id or "",
+                "employee_id": user.employee_id or "",
+                "phone": user.phone or "",
+                "status": "Active" if user.is_active else "Inactive",
+                "created_at": user.created_at.isoformat() if user.created_at else ""
+            })
+        
+        return {
+            "pdf_data": pdf_data,
+            "total_users": len(users)
+        }
+    
+    else:
+        raise HTTPException(status_code=400, detail="Unsupported format. Use 'csv' or 'pdf'")
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8011)

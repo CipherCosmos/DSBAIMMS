@@ -15,7 +15,8 @@ import {
   Bell,
   FolderOpen,
   Database,
-  Monitor
+  Monitor,
+  Calendar
 } from 'lucide-react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
@@ -25,9 +26,12 @@ const navigation = {
     { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
     { name: 'Users', href: '/dashboard/users', icon: Users },
     { name: 'Departments', href: '/dashboard/departments', icon: Building },
+    { name: 'Semesters', href: '/dashboard/semesters', icon: Calendar },
     { name: 'Classes', href: '/dashboard/classes', icon: BookOpen },
     { name: 'Subjects', href: '/dashboard/subjects', icon: FileText },
     { name: 'Exams', href: '/dashboard/exams', icon: FileText },
+    { name: 'Attendance', href: '/dashboard/attendance', icon: Calendar },
+    { name: 'Student Promotion', href: '/dashboard/promotion', icon: GraduationCap },
     { name: 'Question Banks', href: '/dashboard/questionbanks', icon: Database },
     { name: 'Files', href: '/dashboard/files', icon: FolderOpen },
     { name: 'Notifications', href: '/dashboard/notifications', icon: Bell },
@@ -40,9 +44,12 @@ const navigation = {
   hod: [
     { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
     { name: 'Users', href: '/dashboard/users', icon: Users },
+    { name: 'Semesters', href: '/dashboard/semesters', icon: Calendar },
     { name: 'Classes', href: '/dashboard/classes', icon: BookOpen },
     { name: 'Subjects', href: '/dashboard/subjects', icon: FileText },
     { name: 'Exams', href: '/dashboard/exams', icon: FileText },
+    { name: 'Attendance', href: '/dashboard/attendance', icon: Calendar },
+    { name: 'Student Promotion', href: '/dashboard/promotion', icon: GraduationCap },
     { name: 'Question Banks', href: '/dashboard/questionbanks', icon: Database },
     { name: 'Files', href: '/dashboard/files', icon: FolderOpen },
     { name: 'Notifications', href: '/dashboard/notifications', icon: Bell },
@@ -54,6 +61,7 @@ const navigation = {
     { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
     { name: 'My Subjects', href: '/dashboard/subjects', icon: BookOpen },
     { name: 'Exams', href: '/dashboard/exams', icon: FileText },
+    { name: 'Attendance', href: '/dashboard/attendance', icon: Calendar },
     { name: 'Question Banks', href: '/dashboard/questionbanks', icon: Database },
     { name: 'Files', href: '/dashboard/files', icon: FolderOpen },
     { name: 'Notifications', href: '/dashboard/notifications', icon: Bell },
