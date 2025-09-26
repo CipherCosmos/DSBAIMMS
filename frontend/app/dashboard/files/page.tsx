@@ -113,11 +113,11 @@ export default function FilesPage() {
         apiClient.get('/api/semesters')
       ])
 
-      let filesData = filesResponse.data || []
-      const departmentsData = departmentsResponse.data || []
-      const classesData = classesResponse.data || []
-      const subjectsData = subjectsResponse.data || []
-      const semestersData = semestersResponse.data || []
+    let filesData = filesResponse || []
+    const departmentsData = departmentsResponse || []
+    const classesData = classesResponse || []
+    const subjectsData = subjectsResponse || []
+    const semestersData = semestersResponse || []
 
       // Apply filters
       if (filterDepartment) {

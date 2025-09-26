@@ -334,6 +334,7 @@ class Mark(Base):
     is_attempted = Column(Boolean, default=True)
     attempt_number = Column(Integer, default=1)
     is_best_attempt = Column(Boolean, default=False)
+    is_counted_for_total = Column(Boolean, default=True)  # For optional question auto-calculation
     co_contribution = Column(Decimal(5, 2), default=0.0)
     po_contribution = Column(Decimal(5, 2), default=0.0)
     bloom_level = Column(String(20))

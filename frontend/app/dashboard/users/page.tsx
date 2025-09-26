@@ -3,11 +3,12 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '@/hooks/useAuth'
 import { apiClient } from '@/lib/api'
+import { AdminGuard } from '@/components/auth/RoleGuard'
 import { 
   Plus, Edit, Trash2, Users, GraduationCap, Search, Download, Upload, 
   Eye, Filter, RefreshCw, UserCheck, UserX, Mail, Phone, Calendar, 
   MapPin, Briefcase, Shield, MoreVertical, Settings, Key, Lock, Unlock, 
-  AlertCircle, FileText
+  AlertCircle, FileText, Activity
 } from 'lucide-react'
 import Link from 'next/link'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -64,7 +65,7 @@ interface Class {
   academic_year: string
 }
 
-export default function UsersPage() {
+function UsersPage() {
   const { user } = useAuth()
   const [users, setUsers] = useState<User[]>([])
   const [departments, setDepartments] = useState<Department[]>([])
@@ -93,6 +94,17 @@ export default function UsersPage() {
   const [availableRoles, setAvailableRoles] = useState<any[]>([])
   const [fieldConfig, setFieldConfig] = useState<any>(null)
   const [formSelectedRole, setFormSelectedRole] = useState('student')
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false)
+  const [showUserActivity, setShowUserActivity] = useState(false)
+  const [userActivityData, setUserActivityData] = useState<any[]>([])
+  const [showBulkImport, setShowBulkImport] = useState(false)
+  const [importFile, setImportFile] = useState<File | null>(null)
+  const [showUserPermissions, setShowUserPermissions] = useState(false)
+  const [userPermissions, setUserPermissions] = useState<any[]>([])
+  const [showUserGroups, setShowUserGroups] = useState(false)
+  const [userGroups, setUserGroups] = useState<any[]>([])
+  const [showUserSessions, setShowUserSessions] = useState(false)
+  const [userSessions, setUserSessions] = useState<any[]>([])
   const [formData, setFormData] = useState({
     username: '',
     email: '',
@@ -141,8 +153,8 @@ export default function UsersPage() {
       if (selectedClass) params.append('class_id', selectedClass)
       if (selectedStatus) params.append('is_active', selectedStatus)
 
-      const data = await apiClient.getUsers(params.toString())
-      setUsers(Array.isArray(data) ? data : [])
+      const response = await apiClient.getUsers(params.toString())
+        setUsers(Array.isArray(response) ? response : [])
     } catch (error) {
       console.error('Error loading users:', error)
       toast.error('Failed to load users')
@@ -159,10 +171,10 @@ export default function UsersPage() {
         apiClient.getSubjects(),
         apiClient.getAvailableRoles()
       ])
-      setDepartments(Array.isArray(departmentsData) ? departmentsData : [])
-      setClasses(Array.isArray(classesData) ? classesData : [])
-      setAvailableSubjects(Array.isArray(subjectsData) ? subjectsData : [])
-      setAvailableRoles(Array.isArray(rolesData) ? rolesData : [])
+        setDepartments(Array.isArray(departmentsData) ? departmentsData : [])
+        setClasses(Array.isArray(classesData) ? classesData : [])
+        setAvailableSubjects(Array.isArray(subjectsData) ? subjectsData : [])
+        setAvailableRoles(Array.isArray(rolesData) ? rolesData : [])
     } catch (error) {
       console.error('Error loading initial data:', error)
     }
@@ -417,6 +429,126 @@ export default function UsersPage() {
     }
   }
 
+  // Advanced user management functions
+  const handleBulkImport = async () => {
+    if (!importFile) {
+      toast.error('Please select a file to import')
+      return
+    }
+
+    try {
+      setLoading(true)
+      const formData = new FormData()
+      formData.append('file', importFile)
+      
+      const response = await apiClient.post('/api/users/bulk-import', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      })
+      
+      toast.success(`Successfully imported ${response.data.imported_count} users`)
+      setShowBulkImport(false)
+      setImportFile(null)
+      loadUsers()
+      loadStats()
+    } catch (error: any) {
+      toast.error(error.response?.data?.detail || 'Import failed')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleUserActivity = async (userId: number) => {
+    try {
+      const response = await apiClient.get(`/api/users/${userId}/activity`)
+      setUserActivityData(response.data?.data || [])
+      setShowUserActivity(true)
+    } catch (error: any) {
+      toast.error('Failed to load user activity')
+    }
+  }
+
+  const handleUserPermissions = async (userId: number) => {
+    try {
+      const response = await apiClient.get(`/api/users/${userId}/permissions`)
+      setUserPermissions(response.data?.data || [])
+      setShowUserPermissions(true)
+    } catch (error: any) {
+      toast.error('Failed to load user permissions')
+    }
+  }
+
+  const handleUserGroups = async (userId: number) => {
+    try {
+      const response = await apiClient.get(`/api/users/${userId}/groups`)
+      setUserGroups(response.data?.data || [])
+      setShowUserGroups(true)
+    } catch (error: any) {
+      toast.error('Failed to load user groups')
+    }
+  }
+
+  const handleUserSessions = async (userId: number) => {
+    try {
+      const response = await apiClient.get(`/api/users/${userId}/sessions`)
+      setUserSessions(response.data?.data || [])
+      setShowUserSessions(true)
+    } catch (error: any) {
+      toast.error('Failed to load user sessions')
+    }
+  }
+
+  const handleDeactivateUser = async (userId: number) => {
+    try {
+      await apiClient.put(`/api/users/${userId}/deactivate`)
+      toast.success('User deactivated successfully')
+      loadUsers()
+      loadStats()
+    } catch (error: any) {
+      toast.error('Failed to deactivate user')
+    }
+  }
+
+  const handleActivateUser = async (userId: number) => {
+    try {
+      await apiClient.put(`/api/users/${userId}/activate`)
+      toast.success('User activated successfully')
+      loadUsers()
+      loadStats()
+    } catch (error: any) {
+      toast.error('Failed to activate user')
+    }
+  }
+
+  const handleSendWelcomeEmail = async (userId: number) => {
+    try {
+      await apiClient.post(`/api/users/${userId}/send-welcome-email`)
+      toast.success('Welcome email sent successfully')
+    } catch (error: any) {
+      toast.error('Failed to send welcome email')
+    }
+  }
+
+  const handleGenerateReport = async (userId: number) => {
+    try {
+      const response = await apiClient.get(`/api/users/${userId}/report`, {
+        responseType: 'blob'
+      })
+      
+      const blob = new Blob([response.data], { type: 'application/pdf' })
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `user_report_${userId}.pdf`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      window.URL.revokeObjectURL(url)
+      toast.success('User report generated successfully')
+    } catch (error: any) {
+      toast.error('Failed to generate user report')
+    }
+  }
+
   const handleExport = async (format: string) => {
     try {
       setLoading(true)
@@ -597,6 +729,101 @@ export default function UsersPage() {
           )}
         </div>
       </div>
+
+      {/* Advanced Features Toolbar */}
+      <div className="bg-white p-4 rounded-lg shadow mb-6">
+        <div className="flex flex-wrap gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
+          >
+            <Filter className="h-4 w-4 mr-2" />
+            Advanced Filters
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowBulkImport(!showBulkImport)}
+          >
+            <Upload className="h-4 w-4 mr-2" />
+            Bulk Import
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => handleExport('excel')}
+          >
+            <Download className="h-4 w-4 mr-2" />
+            Export Excel
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={loadStats}
+            disabled={loading}
+          >
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Refresh Stats
+          </Button>
+        </div>
+      </div>
+
+      {/* Advanced Filters */}
+      {showAdvancedFilters && (
+        <div className="bg-white p-4 rounded-lg shadow mb-6">
+          <h3 className="text-lg font-semibold mb-4">Advanced Filters</h3>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Created Date From</label>
+              <Input type="date" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Created Date To</label>
+              <Input type="date" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Last Login From</label>
+              <Input type="date" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Last Login To</label>
+              <Input type="date" />
+            </div>
+          </div>
+          <div className="flex justify-end mt-4">
+            <Button variant="outline" onClick={() => setShowAdvancedFilters(false)}>
+              Close Filters
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk Import */}
+      {showBulkImport && (
+        <div className="bg-white p-4 rounded-lg shadow mb-6">
+          <h3 className="text-lg font-semibold mb-4">Bulk Import Users</h3>
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Select CSV/Excel File</label>
+              <Input
+                type="file"
+                accept=".csv,.xlsx,.xls"
+                onChange={(e) => setImportFile(e.target.files?.[0] || null)}
+              />
+            </div>
+            <div className="flex space-x-2">
+              <Button onClick={handleBulkImport} disabled={!importFile || loading}>
+                <Upload className="h-4 w-4 mr-2" />
+                Import Users
+              </Button>
+              <Button variant="outline" onClick={() => setShowBulkImport(false)}>
+                Cancel
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -794,7 +1021,7 @@ export default function UsersPage() {
       {/* Users Table */}
       <Card>
         <CardHeader>
-          <CardTitle>Users ({filteredUsers.length})</CardTitle>
+          <CardTitle>Users ({users.length})</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto">
@@ -820,7 +1047,7 @@ export default function UsersPage() {
                 </tr>
               </thead>
               <tbody>
-                {filteredUsers && Array.isArray(filteredUsers) && filteredUsers.map((userData) => {
+                {users && Array.isArray(users) && users.map((userData) => {
                   const RoleIcon = getRoleIcon(userData.role)
                   return (
                     <tr key={userData.id} className="border-b hover:bg-gray-50">
@@ -878,7 +1105,7 @@ export default function UsersPage() {
                         </div>
                       </td>
                       <td className="p-3">
-                        <div className="flex space-x-2">
+                        <div className="flex space-x-1">
                           <Button 
                             size="sm" 
                             variant="outline"
@@ -905,6 +1132,33 @@ export default function UsersPage() {
                             className="h-8 w-8 p-0"
                           >
                             <Key className="h-4 w-4" />
+                          </Button>
+                          <Button 
+                            size="sm" 
+                            variant="outline"
+                            onClick={() => handleUserActivity(userData.id)}
+                            title="User Activity"
+                            className="h-8 w-8 p-0"
+                          >
+                            <Activity className="h-4 w-4" />
+                          </Button>
+                          <Button 
+                            size="sm" 
+                            variant="outline"
+                            onClick={() => handleSendWelcomeEmail(userData.id)}
+                            title="Send Welcome Email"
+                            className="h-8 w-8 p-0"
+                          >
+                            <Mail className="h-4 w-4" />
+                          </Button>
+                          <Button 
+                            size="sm" 
+                            variant="outline"
+                            onClick={() => handleGenerateReport(userData.id)}
+                            title="Generate Report"
+                            className="h-8 w-8 p-0"
+                          >
+                            <FileText className="h-4 w-4" />
                           </Button>
                           {(user?.role === 'admin' || user?.role === 'hod') && (
                             <Button 
@@ -1686,6 +1940,134 @@ export default function UsersPage() {
           </div>
         </div>
       )}
+
+      {/* User Activity Modal */}
+      {showUserActivity && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-4xl w-full max-h-[80vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-semibold">User Activity Log</h3>
+              <Button variant="outline" onClick={() => setShowUserActivity(false)}>
+                Close
+              </Button>
+            </div>
+            <div className="space-y-4">
+              {userActivityData.map((activity, index) => (
+                <div key={index} className="border rounded-lg p-4">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <p className="font-medium">{activity.action}</p>
+                      <p className="text-sm text-gray-600">{activity.description}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-sm text-gray-500">{new Date(activity.timestamp).toLocaleString()}</p>
+                      <Badge variant="outline">{activity.status}</Badge>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* User Permissions Modal */}
+      {showUserPermissions && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-2xl w-full max-h-[80vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-semibold">User Permissions</h3>
+              <Button variant="outline" onClick={() => setShowUserPermissions(false)}>
+                Close
+              </Button>
+            </div>
+            <div className="space-y-4">
+              {userPermissions.map((permission, index) => (
+                <div key={index} className="flex items-center justify-between p-3 border rounded-lg">
+                  <div>
+                    <p className="font-medium">{permission.name}</p>
+                    <p className="text-sm text-gray-600">{permission.description}</p>
+                  </div>
+                  <Badge className={permission.granted ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}>
+                    {permission.granted ? 'Granted' : 'Denied'}
+                  </Badge>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* User Groups Modal */}
+      {showUserGroups && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-2xl w-full max-h-[80vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-semibold">User Groups</h3>
+              <Button variant="outline" onClick={() => setShowUserGroups(false)}>
+                Close
+              </Button>
+            </div>
+            <div className="space-y-4">
+              {userGroups.map((group, index) => (
+                <div key={index} className="flex items-center justify-between p-3 border rounded-lg">
+                  <div>
+                    <p className="font-medium">{group.name}</p>
+                    <p className="text-sm text-gray-600">{group.description}</p>
+                  </div>
+                  <Badge variant="outline">{group.role}</Badge>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* User Sessions Modal */}
+      {showUserSessions && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-4xl w-full max-h-[80vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-semibold">Active Sessions</h3>
+              <Button variant="outline" onClick={() => setShowUserSessions(false)}>
+                Close
+              </Button>
+            </div>
+            <div className="space-y-4">
+              {userSessions.map((session, index) => (
+                <div key={index} className="border rounded-lg p-4">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <p className="font-medium">Session {session.id}</p>
+                      <p className="text-sm text-gray-600">IP: {session.ip_address}</p>
+                      <p className="text-sm text-gray-600">Device: {session.device_info}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-sm text-gray-500">
+                        Started: {new Date(session.started_at).toLocaleString()}
+                      </p>
+                      <p className="text-sm text-gray-500">
+                        Last Activity: {new Date(session.last_activity).toLocaleString()}
+                      </p>
+                      <Badge className={session.is_active ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}>
+                        {session.is_active ? 'Active' : 'Inactive'}
+                      </Badge>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
+  )
+}
+
+export default function UsersPageWithGuard() {
+  return (
+    <AdminGuard>
+      <UsersPage />
+    </AdminGuard>
   )
 }

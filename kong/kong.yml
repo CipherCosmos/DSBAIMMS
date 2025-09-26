@@ -47,7 +47,7 @@ services:
         path_handling: v0
 
   - name: classes-service
-    url: http://classes-service:8004
+    url: http://classes-service:8004/classes
     routes:
       - name: classes
         paths:
@@ -56,7 +56,7 @@ services:
         path_handling: v0
 
   - name: subjects-service
-    url: http://subjects-service:8005
+    url: http://subjects-service:8005/subjects
     routes:
       - name: subjects
         paths:

@@ -84,10 +84,10 @@ export default function ClassesPage() {
         apiClient.get('/api/users')
       ])
 
-      let classesData = classesResponse.data || []
-      const semestersData = semestersResponse.data || []
-      const departmentsData = departmentsResponse.data || []
-      const usersData = usersResponse.data || []
+    let classesData = classesResponse || []
+    const semestersData = semestersResponse || []
+    const departmentsData = departmentsResponse || []
+    const usersData = usersResponse || []
 
       // Filter by department if selected
       if (filterDepartment) {

@@ -61,6 +61,79 @@ def publish_marks_event(event_type: str, data: dict):
         except Exception as e:
             print(f"Failed to publish event: {e}")
 
+async def auto_calculate_optional_marks(db: Session, exam_id: int, student_id: int):
+    """Auto-calculate marks for optional questions using best-attempt logic"""
+    try:
+        # Get all sections with optional questions for this exam
+        sections = db.query(ExamSection).filter(ExamSection.exam_id == exam_id).all()
+        
+        for section in sections:
+            # Get optional questions for this section
+            optional_questions = db.query(Question).filter(
+                Question.section_id == section.id,
+                Question.is_optional == True
+            ).all()
+            
+            if not optional_questions:
+                continue
+            
+            # Get student's marks for all optional questions in this section
+            student_marks = db.query(Mark).filter(
+                Mark.student_id == student_id,
+                Mark.question_id.in_([q.id for q in optional_questions])
+            ).all()
+            
+            if not student_marks:
+                continue
+            
+            # Group questions by marks value for auto-calculation
+            questions_by_marks = {}
+            for question in optional_questions:
+                marks_value = question.marks
+                if marks_value not in questions_by_marks:
+                    questions_by_marks[marks_value] = []
+                questions_by_marks[marks_value].append(question)
+            
+            # Calculate best attempts for each marks group
+            for marks_value, questions in questions_by_marks.items():
+                # Get marks for this group
+                group_marks = [m for m in student_marks if m.question_id in [q.id for q in questions]]
+                
+                if not group_marks:
+                    continue
+                
+                # Sort by marks obtained (descending) to get best attempts
+                group_marks.sort(key=lambda x: x.marks_obtained, reverse=True)
+                
+                # Determine how many questions to count based on section rules
+                questions_to_count = section.questions_to_attempt or len(questions)
+                
+                # Take the best attempts
+                best_attempts = group_marks[:questions_to_count]
+                
+                # Mark the best attempts as counted
+                for i, mark in enumerate(group_marks):
+                    if i < questions_to_count:
+                        # This is a best attempt - mark it as counted
+                        mark.is_counted_for_total = True
+                    else:
+                        # This is not counted - mark it as not counted
+                        mark.is_counted_for_total = False
+                
+                # Calculate total marks for this group
+                total_marks = sum(mark.marks_obtained for mark in best_attempts)
+                
+                # Log the calculation
+                print(f"Auto-calculated optional marks for student {student_id} in exam {exam_id}: "
+                      f"Section {section.name}, {len(best_attempts)}/{len(questions)} questions counted, "
+                      f"Total: {total_marks}/{questions_to_count * marks_value} marks")
+        
+        db.commit()
+        
+    except Exception as e:
+        print(f"Error in auto_calculate_optional_marks: {e}")
+        db.rollback()
+
 # Root endpoint
 @app.get("/")
 async def root():
@@ -194,6 +267,11 @@ async def create_mark(
     db.add(db_mark)
     db.commit()
     db.refresh(db_mark)
+    
+    # Auto-calculate optional questions marks if this is an optional question
+    question = db.query(Question).filter(Question.id == mark.question_id).first()
+    if question and question.is_optional:
+        await auto_calculate_optional_marks(db, mark.exam_id, mark.student_id)
     
     # Log audit
     log_audit(db, current_user_id, "CREATE", "Mark", db_mark.id, None, {

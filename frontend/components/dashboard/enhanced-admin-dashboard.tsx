@@ -15,47 +15,50 @@ interface DashboardStats {
   total_classes: number
   total_subjects: number
   total_exams: number
-  total_students: number
-  total_teachers: number
-  active_semesters: number
-  recent_activities: Array<{
-    type: string
-    description: string
-    timestamp: string
-    user_id: number
-  }>
+  recent_exams: number
+  recent_marks: number
+  avg_co_attainment: number
+  // Role-specific additional stats (optional)
+  total_students?: number
+  total_teachers?: number
+  active_semesters?: number
+  attendance_percentage?: number
+  total_attendance_records?: number
+  completed_exams?: number
+  assigned_subjects?: number
+  assigned_classes?: number
+  students_taught?: number
+  overall_percentage?: number
+  total_exams_attempted?: number
+  subjects_enrolled?: number
 }
 
 interface COPOAnalytics {
   co_id: number
   co_name: string
-  po_id: number
-  po_name: string
-  mapping_strength: number
+  co_description: string
+  subject_name: string
+  total_marks_obtained: number
+  total_max_marks: number
   attainment_percentage: number
-  student_count: number
-  average_score: number
-  bloom_distribution: Record<string, number>
-  difficulty_distribution: Record<string, number>
+  attainment_level: string
+  students_count: number
+  students_above_threshold: number
 }
 
 interface StudentPerformance {
   student_id: number
   student_name: string
-  semester_id: number
-  semester_name: string
-  class_id: number
+  student_number: string
   class_name: string
-  total_subjects: number
-  completed_subjects: number
   overall_percentage: number
-  overall_grade: string
-  gpa: number
-  attendance_percentage: number
-  co_attainment: Record<string, number>
-  po_attainment: Record<string, number>
-  bloom_mastery: Record<string, number>
-  difficulty_mastery: Record<string, number>
+  co_attainments: Array<{
+    co_id: number
+    co_name: string
+    attainment_percentage: number
+  }>
+  weak_areas: string[]
+  recommendations: string[]
 }
 
 export function EnhancedAdminDashboard() {
@@ -80,14 +83,34 @@ export function EnhancedAdminDashboard() {
         apiClient.get('/api/analytics/student-performance')
       ])
 
+      console.log('Promise.allSettled results:', {
+        statsData: statsData.status,
+        coPoData: coPoData.status,
+        studentData: studentData.status
+      })
+
       if (statsData.status === 'fulfilled') {
-        setStats(statsData.value)
+        console.log('Stats API Response:', statsData.value)
+        console.log('Stats Data:', statsData.value.data)
+        setStats(statsData.value || null)
+      } else {
+        console.error('Stats API Error:', statsData.reason)
       }
+      
       if (coPoData.status === 'fulfilled') {
-        setCoPoAnalytics(coPoData.value)
+        console.log('CO/PO API Response:', coPoData.value)
+        console.log('CO/PO Data:', coPoData.value.data)
+        setCoPoAnalytics(coPoData.value || [])
+      } else {
+        console.error('CO/PO API Error:', coPoData.reason)
       }
+      
       if (studentData.status === 'fulfilled') {
-        setStudentPerformance(studentData.value)
+        console.log('Student API Response:', studentData.value)
+        console.log('Student Data:', studentData.value.data)
+        setStudentPerformance(studentData.value || [])
+      } else {
+        console.error('Student API Error:', studentData.reason)
       }
     } catch (error) {
       console.error('Error loading dashboard data:', error)
@@ -217,6 +240,15 @@ export function EnhancedAdminDashboard() {
     )
   }
 
+  // Debug logging
+  console.log('Dashboard State:', {
+    stats,
+    coPoAnalytics,
+    studentPerformance,
+    loading,
+    error
+  })
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -340,21 +372,21 @@ export function EnhancedAdminDashboard() {
                 <thead className="bg-gray-50">
                   <tr>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">CO</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">PO</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Subject</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Attainment %</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Students</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Avg Score</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Level</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Students Above Threshold</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {coPoAnalytics.map((item, index) => (
+                  {(coPoAnalytics || []).map((item, index) => (
                     <tr key={index}>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                         {item.co_name}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {item.po_name}
+                        {item.subject_name}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         <div className="flex items-center">
@@ -368,10 +400,16 @@ export function EnhancedAdminDashboard() {
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {item.student_count}
+                        <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
+                          item.attainment_level === 'Exceeds' ? 'bg-green-100 text-green-800' :
+                          item.attainment_level === 'Meets' ? 'bg-blue-100 text-blue-800' :
+                          'bg-red-100 text-red-800'
+                        }`}>
+                          {item.attainment_level}
+                        </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {item.average_score.toFixed(1)}
+                        {item.students_above_threshold} / {item.students_count}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         <button className="text-blue-600 hover:text-blue-900">
@@ -407,7 +445,7 @@ export function EnhancedAdminDashboard() {
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {studentPerformance.map((student, index) => (
+                  {(studentPerformance || []).map((student, index) => (
                     <tr key={index}>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                         {student.student_name}

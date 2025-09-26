@@ -3,6 +3,7 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react'
 import { useRouter } from 'next/navigation'
 import { apiClient } from '@/lib/api'
+import { getAccessToken, setAccessToken, setRefreshToken, clearAuthTokens } from '@/lib/cookies'
 
 interface User {
   id: number
@@ -31,7 +32,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const initAuth = async () => {
-      const token = localStorage.getItem('access_token')
+      const token = getAccessToken()
       console.log('Initializing auth, token exists:', !!token)
       
       if (token) {
@@ -46,8 +47,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           // Other errors (network, 500, etc.) should not clear tokens
           if (error.response?.status === 401) {
             console.log('401 error, clearing tokens')
-            localStorage.removeItem('access_token')
-            localStorage.removeItem('refresh_token')
+            clearAuthTokens()
           }
         }
       }
@@ -63,8 +63,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       console.log('Attempting login for user:', _username)
       const response = await apiClient.login(_username, _password)
       console.log('Login successful, setting tokens and user data')
-      localStorage.setItem('access_token', response.data.access_token)
-      localStorage.setItem('refresh_token', response.data.refresh_token)
+      
+      // Set cookies with proper expiration
+      setAccessToken(response.data.access_token, 7)
+      setRefreshToken(response.data.refresh_token, 7)
+      
       setUser(response.data.user)
       console.log('User set in context:', response.data.user)
     } catch (error: any) {
@@ -79,8 +82,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch (error) {
       // Ignore logout errors
     } finally {
-      localStorage.removeItem('access_token')
-      localStorage.removeItem('refresh_token')
+      // Clear cookies
+      clearAuthTokens()
       setUser(null)
       router.push('/login')
     }

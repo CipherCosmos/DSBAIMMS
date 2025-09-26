@@ -86,6 +86,8 @@ async def get_co_attainment(
     subject_id: Optional[int] = None,
     class_id: Optional[int] = None,
     department_id: Optional[int] = None,
+    semester_id: Optional[int] = None,
+    academic_year: Optional[str] = None,
     threshold: float = Query(50.0, description="Minimum percentage for attainment"),
     db: Session = Depends(get_db),
     current_user_id: int = Depends(RoleChecker(["admin", "hod", "teacher", "student"]))
@@ -120,6 +122,17 @@ async def get_co_attainment(
         query = query.join(Exam, Exam.subject_id == Subject.id).filter(Exam.class_id == class_id)
     if department_id:
         query = query.filter(CO.department_id == department_id)
+    if semester_id:
+        # Filter by semester through classes
+        query = query.join(Exam, Exam.subject_id == Subject.id
+        ).join(Class, Class.id == Exam.class_id
+        ).filter(Class.semester_id == semester_id)
+    if academic_year:
+        # Filter by academic year through semesters
+        query = query.join(Exam, Exam.subject_id == Subject.id
+        ).join(Class, Class.id == Exam.class_id
+        ).join(Semester, Semester.id == Class.semester_id
+        ).filter(Semester.academic_year == academic_year)
     
     query = query.group_by(CO.id, CO.name, CO.description, Subject.name)
     
@@ -158,6 +171,8 @@ async def get_co_attainment(
 @app.get("/po-attainment", response_model=List[POAttainmentResponse])
 async def get_po_attainment(
     department_id: Optional[int] = None,
+    semester_id: Optional[int] = None,
+    academic_year: Optional[str] = None,
     threshold: float = Query(50.0, description="Minimum percentage for attainment"),
     db: Session = Depends(get_db),
     current_user_id: int = Depends(RoleChecker(["admin", "hod", "teacher"]))
@@ -186,6 +201,17 @@ async def get_po_attainment(
         po_query = po_query.filter(PO.department_id == current_user.department_id)
     elif department_id:
         po_query = po_query.filter(PO.department_id == department_id)
+    
+    # Apply semester context filters
+    if semester_id:
+        po_query = po_query.join(Exam, Exam.subject_id == Subject.id
+        ).join(Class, Class.id == Exam.class_id
+        ).filter(Class.semester_id == semester_id)
+    if academic_year:
+        po_query = po_query.join(Exam, Exam.subject_id == Subject.id
+        ).join(Class, Class.id == Exam.class_id
+        ).join(Semester, Semester.id == Class.semester_id
+        ).filter(Semester.academic_year == academic_year)
     
     po_query = po_query.group_by(PO.id, PO.name, PO.description, Department.name)
     
@@ -221,6 +247,8 @@ async def get_po_attainment(
 async def get_student_performance(
     student_id: Optional[int] = None,
     class_id: Optional[int] = None,
+    semester_id: Optional[int] = None,
+    academic_year: Optional[str] = None,
     db: Session = Depends(get_db),
     current_user_id: int = Depends(RoleChecker(["admin", "hod", "teacher", "student"]))
 ):
@@ -244,6 +272,15 @@ async def get_student_performance(
         students_query = students_query.filter(User.id == student_id)
     if class_id:
         students_query = students_query.filter(User.class_id == class_id)
+    if semester_id:
+        # Filter students by semester through their class
+        students_query = students_query.join(Class, Class.id == User.class_id
+        ).filter(Class.semester_id == semester_id)
+    if academic_year:
+        # Filter students by academic year through semester
+        students_query = students_query.join(Class, Class.id == User.class_id
+        ).join(Semester, Semester.id == Class.semester_id
+        ).filter(Semester.academic_year == academic_year)
     
     students = students_query.all()
     
@@ -307,6 +344,566 @@ async def get_student_performance(
         ))
     
     return student_performance
+
+# Cross-Semester Analytics
+@app.get("/cross-semester-performance")
+async def get_cross_semester_performance(
+    student_id: Optional[int] = None,
+    department_id: Optional[int] = None,
+    academic_year: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(RoleChecker(["admin", "hod", "teacher", "student"]))
+):
+    """Get performance trends across semesters for students"""
+    current_user = db.query(User).filter(User.id == current_user_id).first()
+    
+    # Base query for student semester enrollments
+    enrollments_query = db.query(StudentSemesterEnrollment).options(
+        joinedload(StudentSemesterEnrollment.student),
+        joinedload(StudentSemesterEnrollment.semester),
+        joinedload(StudentSemesterEnrollment.class_ref)
+    )
+    
+    # Apply role-based filters
+    if current_user.role == "student":
+        enrollments_query = enrollments_query.filter(StudentSemesterEnrollment.student_id == current_user_id)
+    elif current_user.role == "teacher":
+        # Get enrollments for classes the teacher teaches
+        teacher_classes = db.query(Subject.class_id).filter(Subject.teacher_id == current_user_id).distinct().subquery()
+        enrollments_query = enrollments_query.filter(StudentSemesterEnrollment.class_id.in_(teacher_classes))
+    elif current_user.role == "hod":
+        enrollments_query = enrollments_query.join(Semester).filter(Semester.department_id == current_user.department_id)
+    
+    # Apply additional filters
+    if student_id:
+        enrollments_query = enrollments_query.filter(StudentSemesterEnrollment.student_id == student_id)
+    if department_id:
+        enrollments_query = enrollments_query.join(Semester).filter(Semester.department_id == department_id)
+    if academic_year:
+        enrollments_query = enrollments_query.join(Semester).filter(Semester.academic_year == academic_year)
+    
+    enrollments = enrollments_query.order_by(
+        StudentSemesterEnrollment.student_id,
+        Semester.semester_number
+    ).all()
+    
+    # Group by student and semester
+    student_semester_data = {}
+    for enrollment in enrollments:
+        student_id = enrollment.student_id
+        semester_num = enrollment.semester.semester_number
+        
+        if student_id not in student_semester_data:
+            student_semester_data[student_id] = {
+                'student': enrollment.student,
+                'semesters': {}
+            }
+        
+        # Get marks for this student in this semester
+        semester_marks = db.query(
+            func.sum(Mark.marks_obtained).label('total_obtained'),
+            func.sum(Mark.max_marks).label('total_max')
+        ).join(Question).join(ExamSection).join(Exam).join(Class).filter(
+            Mark.student_id == student_id,
+            Class.semester_id == enrollment.semester_id
+        ).first()
+        
+        semester_percentage = 0
+        if semester_marks.total_max and semester_marks.total_max > 0:
+            semester_percentage = (semester_marks.total_obtained / semester_marks.total_max) * 100
+        
+        student_semester_data[student_id]['semesters'][semester_num] = {
+            'semester_number': semester_num,
+            'semester_name': enrollment.semester.name,
+            'gpa': enrollment.gpa,
+            'attendance_percentage': enrollment.attendance_percentage,
+            'performance_percentage': round(semester_percentage, 2),
+            'final_grade': enrollment.final_grade,
+            'status': enrollment.status
+        }
+    
+    # Convert to response format
+    cross_semester_data = []
+    for student_id, data in student_semester_data.items():
+        semesters = []
+        for sem_num in sorted(data['semesters'].keys()):
+            semesters.append(data['semesters'][sem_num])
+        
+        # Calculate trends
+        performance_trend = "stable"
+        if len(semesters) >= 2:
+            first_perf = semesters[0]['performance_percentage']
+            last_perf = semesters[-1]['performance_percentage']
+            if last_perf > first_perf + 5:
+                performance_trend = "improving"
+            elif last_perf < first_perf - 5:
+                performance_trend = "declining"
+        
+        cross_semester_data.append({
+            'student_id': student_id,
+            'student_name': data['student'].full_name,
+            'student_username': data['student'].username,
+            'semesters': semesters,
+            'performance_trend': performance_trend,
+            'overall_gpa': round(sum(s['gpa'] or 0 for s in semesters) / len(semesters), 2) if semesters else 0,
+            'average_attendance': round(sum(s['attendance_percentage'] or 0 for s in semesters) / len(semesters), 2) if semesters else 0
+        })
+    
+    return cross_semester_data
+
+# Role-Specific Analytics
+@app.get("/role-analytics")
+async def get_role_specific_analytics(
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(RoleChecker(["admin", "hod", "teacher", "student"]))
+):
+    """Get analytics specific to the user's role"""
+    current_user = db.query(User).filter(User.id == current_user_id).first()
+    
+    if current_user.role == "admin":
+        # Admin gets institution-wide analytics
+        return {
+            "role": "admin",
+            "scope": "institution",
+            "analytics": {
+                "total_departments": db.query(Department).filter(Department.is_active == True).count(),
+                "total_faculty": db.query(User).filter(User.role.in_(["hod", "teacher"]), User.is_active == True).count(),
+                "total_students": db.query(User).filter(User.role == "student", User.is_active == True).count(),
+                "active_semesters": db.query(Semester).filter(Semester.is_active == True).count(),
+                "total_exams": db.query(Exam).count(),
+                "department_performance": await get_department_performance_comparison(db),
+                "institution_trends": await get_institution_trends(db)
+            }
+        }
+    
+    elif current_user.role == "hod":
+        # HOD gets department-specific analytics
+        department = db.query(Department).filter(Department.id == current_user.department_id).first()
+        if not department:
+            raise HTTPException(status_code=404, detail="Department not found")
+        
+        return {
+            "role": "hod",
+            "scope": "department",
+            "department_id": current_user.department_id,
+            "department_name": department.name,
+            "analytics": {
+                "department_stats": await get_department_stats(db, current_user.department_id),
+                "semester_breakdown": await get_department_semester_breakdown(db, current_user.department_id),
+                "teacher_performance": await get_department_teacher_performance(db, current_user.department_id),
+                "student_progression": await get_department_student_progression(db, current_user.department_id),
+                "co_po_attainment": await get_department_copo_attainment(db, current_user.department_id)
+            }
+        }
+    
+    elif current_user.role == "teacher":
+        # Teacher gets subject-specific analytics
+        teacher_subjects = db.query(Subject).filter(
+            Subject.teacher_id == current_user_id,
+            Subject.is_active == True
+        ).all()
+        
+        return {
+            "role": "teacher",
+            "scope": "subjects",
+            "teacher_id": current_user_id,
+            "teacher_name": current_user.full_name,
+            "analytics": {
+                "assigned_subjects": len(teacher_subjects),
+                "subject_performance": await get_teacher_subject_performance(db, current_user_id),
+                "class_analytics": await get_teacher_class_analytics(db, current_user_id),
+                "question_effectiveness": await get_teacher_question_effectiveness(db, current_user_id),
+                "student_feedback": await get_teacher_student_feedback(db, current_user_id)
+            }
+        }
+    
+    elif current_user.role == "student":
+        # Student gets personal analytics
+        return {
+            "role": "student",
+            "scope": "personal",
+            "student_id": current_user_id,
+            "student_name": current_user.full_name,
+            "analytics": {
+                "academic_performance": await get_student_academic_performance(db, current_user_id),
+                "subject_breakdown": await get_student_subject_breakdown(db, current_user_id),
+                "co_po_progress": await get_student_copo_progress(db, current_user_id),
+                "attendance_summary": await get_student_attendance_summary(db, current_user_id),
+                "improvement_areas": await get_student_improvement_areas(db, current_user_id),
+                "recommendations": await get_student_recommendations(db, current_user_id)
+            }
+        }
+    
+    else:
+        raise HTTPException(status_code=403, detail="Invalid role")
+
+# Helper functions for role-specific analytics
+async def get_department_performance_comparison(db: Session):
+    """Get performance comparison across departments"""
+    departments = db.query(Department).filter(Department.is_active == True).all()
+    comparison = []
+    
+    for dept in departments:
+        # Get average performance for this department
+        dept_performance = db.query(
+            func.avg(Mark.marks_obtained / Mark.max_marks * 100).label('avg_performance')
+        ).join(Question).join(ExamSection).join(Exam).join(Subject).filter(
+            Subject.department_id == dept.id
+        ).scalar() or 0
+        
+        comparison.append({
+            "department_id": dept.id,
+            "department_name": dept.name,
+            "average_performance": round(float(dept_performance), 2),
+            "total_students": db.query(User).filter(
+                User.department_id == dept.id,
+                User.role == "student"
+            ).count()
+        })
+    
+    return sorted(comparison, key=lambda x: x["average_performance"], reverse=True)
+
+async def get_institution_trends(db: Session):
+    """Get institution-wide trends"""
+    # Get performance trends over time
+    monthly_performance = db.query(
+        func.date_trunc('month', Mark.created_at).label('month'),
+        func.avg(Mark.marks_obtained / Mark.max_marks * 100).label('avg_performance')
+    ).group_by(func.date_trunc('month', Mark.created_at)).order_by('month').all()
+    
+    return {
+        "monthly_performance": [
+            {"month": month.strftime('%Y-%m'), "performance": round(float(avg), 2)}
+            for month, avg in monthly_performance
+        ],
+        "total_exams_conducted": db.query(Exam).count(),
+        "active_academic_year": db.query(Semester.academic_year).distinct().count()
+    }
+
+async def get_department_stats(db: Session, department_id: int):
+    """Get department-specific statistics"""
+    return {
+        "total_students": db.query(User).filter(
+            User.department_id == department_id,
+            User.role == "student"
+        ).count(),
+        "total_teachers": db.query(User).filter(
+            User.department_id == department_id,
+            User.role == "teacher"
+        ).count(),
+        "total_classes": db.query(Class).join(Semester).filter(
+            Semester.department_id == department_id
+        ).count(),
+        "total_subjects": db.query(Subject).filter(
+            Subject.department_id == department_id
+        ).count(),
+        "active_semesters": db.query(Semester).filter(
+            Semester.department_id == department_id,
+            Semester.is_active == True
+        ).count()
+    }
+
+async def get_department_semester_breakdown(db: Session, department_id: int):
+    """Get semester-wise breakdown for department"""
+    semesters = db.query(Semester).filter(
+        Semester.department_id == department_id
+    ).order_by(Semester.semester_number).all()
+    
+    breakdown = []
+    for semester in semesters:
+        # Get student count and performance for this semester
+        student_count = db.query(StudentSemesterEnrollment).filter(
+            StudentSemesterEnrollment.semester_id == semester.id
+        ).count()
+        
+        semester_performance = db.query(
+            func.avg(Mark.marks_obtained / Mark.max_marks * 100).label('avg_performance')
+        ).join(Question).join(ExamSection).join(Exam).join(Class).filter(
+            Class.semester_id == semester.id
+        ).scalar() or 0
+        
+        breakdown.append({
+            "semester_id": semester.id,
+            "semester_number": semester.semester_number,
+            "semester_name": semester.name,
+            "student_count": student_count,
+            "average_performance": round(float(semester_performance), 2),
+            "is_active": semester.is_active
+        })
+    
+    return breakdown
+
+async def get_department_teacher_performance(db: Session, department_id: int):
+    """Get teacher performance within department"""
+    teachers = db.query(User).filter(
+        User.department_id == department_id,
+        User.role == "teacher"
+    ).all()
+    
+    teacher_performance = []
+    for teacher in teachers:
+        # Get teacher's subjects and their performance
+        subjects = db.query(Subject).filter(Subject.teacher_id == teacher.id).all()
+        total_subjects = len(subjects)
+        
+        # Calculate average performance across all teacher's subjects
+        teacher_avg_performance = db.query(
+            func.avg(Mark.marks_obtained / Mark.max_marks * 100).label('avg_performance')
+        ).join(Question).join(ExamSection).join(Exam).filter(
+            Exam.subject_id.in_([s.id for s in subjects])
+        ).scalar() or 0
+        
+        teacher_performance.append({
+            "teacher_id": teacher.id,
+            "teacher_name": teacher.full_name,
+            "total_subjects": total_subjects,
+            "average_performance": round(float(teacher_avg_performance), 2),
+            "total_students": db.query(User).filter(
+                User.class_id.in_([c.id for c in db.query(Class).join(Subject).filter(Subject.teacher_id == teacher.id).all()])
+            ).count()
+        })
+    
+    return sorted(teacher_performance, key=lambda x: x["average_performance"], reverse=True)
+
+async def get_department_student_progression(db: Session, department_id: int):
+    """Get student progression within department"""
+    # Get students who have completed multiple semesters
+    student_progressions = db.query(
+        StudentSemesterEnrollment.student_id,
+        func.count(StudentSemesterEnrollment.semester_id).label('semesters_completed'),
+        func.avg(StudentSemesterEnrollment.gpa).label('avg_gpa')
+    ).join(Semester).filter(
+        Semester.department_id == department_id,
+        StudentSemesterEnrollment.status == 'completed'
+    ).group_by(StudentSemesterEnrollment.student_id).all()
+    
+    return {
+        "total_students_with_progression": len(student_progressions),
+        "average_semesters_completed": round(
+            sum(p.semesters_completed for p in student_progressions) / len(student_progressions) if student_progressions else 0, 2
+        ),
+        "average_gpa": round(
+            sum(p.avg_gpa for p in student_progressions) / len(student_progressions) if student_progressions else 0, 2
+        )
+    }
+
+async def get_department_copo_attainment(db: Session, department_id: int):
+    """Get CO/PO attainment for department"""
+    # Get CO attainment
+    co_attainment = db.query(
+        CO.name.label('co_name'),
+        func.avg(Mark.marks_obtained / Mark.max_marks * 100).label('attainment')
+    ).join(Question).join(Mark).join(Subject).filter(
+        Subject.department_id == department_id
+    ).group_by(CO.id, CO.name).all()
+    
+    # Get PO attainment
+    po_attainment = db.query(
+        PO.name.label('po_name'),
+        func.avg(
+            COPOMapping.mapping_strength * (Mark.marks_obtained / Mark.max_marks * 100)
+        ).label('attainment')
+    ).join(COPOMapping).join(CO).join(Question).join(Mark).join(Subject).filter(
+        Subject.department_id == department_id
+    ).group_by(PO.id, PO.name).all()
+    
+    return {
+        "co_attainment": [
+            {"co_name": co.co_name, "attainment": round(float(co.attainment), 2)}
+            for co in co_attainment
+        ],
+        "po_attainment": [
+            {"po_name": po.po_name, "attainment": round(float(po.attainment), 2)}
+            for po in po_attainment
+        ]
+    }
+
+async def get_teacher_subject_performance(db: Session, teacher_id: int):
+    """Get performance for teacher's subjects"""
+    subjects = db.query(Subject).filter(Subject.teacher_id == teacher_id).all()
+    subject_performance = []
+    
+    for subject in subjects:
+        # Get average performance for this subject
+        avg_performance = db.query(
+            func.avg(Mark.marks_obtained / Mark.max_marks * 100).label('avg_performance')
+        ).join(Question).join(ExamSection).join(Exam).filter(
+            Exam.subject_id == subject.id
+        ).scalar() or 0
+        
+        # Get student count
+        student_count = db.query(User).filter(User.class_id == subject.class_id).count()
+        
+        subject_performance.append({
+            "subject_id": subject.id,
+            "subject_name": subject.name,
+            "subject_code": subject.code,
+            "average_performance": round(float(avg_performance), 2),
+            "student_count": student_count
+        })
+    
+    return subject_performance
+
+async def get_teacher_class_analytics(db: Session, teacher_id: int):
+    """Get class analytics for teacher"""
+    classes = db.query(Class).join(Subject).filter(Subject.teacher_id == teacher_id).distinct().all()
+    class_analytics = []
+    
+    for class_obj in classes:
+        # Get class performance
+        class_performance = db.query(
+            func.avg(Mark.marks_obtained / Mark.max_marks * 100).label('avg_performance')
+        ).join(Question).join(ExamSection).join(Exam).filter(
+            Exam.class_id == class_obj.id
+        ).scalar() or 0
+        
+        class_analytics.append({
+            "class_id": class_obj.id,
+            "class_name": class_obj.name,
+            "semester": class_obj.semester.semester_number,
+            "average_performance": round(float(class_performance), 2),
+            "student_count": db.query(User).filter(User.class_id == class_obj.id).count()
+        })
+    
+    return class_analytics
+
+async def get_teacher_question_effectiveness(db: Session, teacher_id: int):
+    """Get question effectiveness for teacher"""
+    questions = db.query(Question).join(ExamSection).join(Exam).join(Subject).filter(
+        Subject.teacher_id == teacher_id
+    ).all()
+    
+    question_stats = []
+    for question in questions:
+        # Get question performance
+        avg_marks = db.query(func.avg(Mark.marks_obtained)).filter(
+            Mark.question_id == question.id
+        ).scalar() or 0
+        
+        difficulty_index = float(avg_marks) / float(question.marks) if question.marks > 0 else 0
+        
+        question_stats.append({
+            "question_id": question.id,
+            "question_number": question.question_number,
+            "difficulty_index": round(difficulty_index, 2),
+            "bloom_level": question.bloom_level,
+            "average_marks": round(float(avg_marks), 2),
+            "max_marks": float(question.marks)
+        })
+    
+    return question_stats
+
+async def get_teacher_student_feedback(db: Session, teacher_id: int):
+    """Get student feedback for teacher (mock data for now)"""
+    # This would typically come from a feedback system
+    return {
+        "total_feedback_responses": 0,
+        "average_rating": 0.0,
+        "feedback_summary": "No feedback available"
+    }
+
+async def get_student_academic_performance(db: Session, student_id: int):
+    """Get student's academic performance"""
+    # Get overall performance
+    overall_performance = db.query(
+        func.avg(Mark.marks_obtained / Mark.max_marks * 100).label('avg_performance')
+    ).filter(Mark.student_id == student_id).scalar() or 0
+    
+    # Get performance by semester
+    semester_performance = db.query(
+        Semester.semester_number,
+        Semester.name,
+        func.avg(Mark.marks_obtained / Mark.max_marks * 100).label('avg_performance')
+    ).join(Class).join(Exam).join(ExamSection).join(Question).join(Mark).filter(
+        Mark.student_id == student_id
+    ).group_by(Semester.id, Semester.semester_number, Semester.name).order_by(Semester.semester_number).all()
+    
+    return {
+        "overall_performance": round(float(overall_performance), 2),
+        "semester_breakdown": [
+            {
+                "semester_number": sem.semester_number,
+                "semester_name": sem.name,
+                "performance": round(float(sem.avg_performance), 2)
+            }
+            for sem in semester_performance
+        ]
+    }
+
+async def get_student_subject_breakdown(db: Session, student_id: int):
+    """Get student's performance by subject"""
+    subject_performance = db.query(
+        Subject.name,
+        Subject.code,
+        func.avg(Mark.marks_obtained / Mark.max_marks * 100).label('avg_performance')
+    ).join(Exam).join(ExamSection).join(Question).join(Mark).filter(
+        Mark.student_id == student_id
+    ).group_by(Subject.id, Subject.name, Subject.code).all()
+    
+    return [
+        {
+            "subject_name": subj.name,
+            "subject_code": subj.code,
+            "performance": round(float(subj.avg_performance), 2)
+        }
+        for subj in subject_performance
+    ]
+
+async def get_student_copo_progress(db: Session, student_id: int):
+    """Get student's CO/PO progress"""
+    # Get CO progress
+    co_progress = db.query(
+        CO.name,
+        func.avg(Mark.marks_obtained / Mark.max_marks * 100).label('attainment')
+    ).join(Question).join(Mark).filter(
+        Mark.student_id == student_id
+    ).group_by(CO.id, CO.name).all()
+    
+    return {
+        "co_progress": [
+            {"co_name": co.name, "attainment": round(float(co.attainment), 2)}
+            for co in co_progress
+        ]
+    }
+
+async def get_student_attendance_summary(db: Session, student_id: int):
+    """Get student's attendance summary"""
+    attendance_records = db.query(Attendance).filter(Attendance.student_id == student_id).all()
+    
+    if not attendance_records:
+        return {"attendance_percentage": 0, "total_days": 0, "present_days": 0}
+    
+    present_days = len([a for a in attendance_records if a.status == "present"])
+    total_days = len(attendance_records)
+    attendance_percentage = (present_days / total_days * 100) if total_days > 0 else 0
+    
+    return {
+        "attendance_percentage": round(attendance_percentage, 2),
+        "total_days": total_days,
+        "present_days": present_days
+    }
+
+async def get_student_improvement_areas(db: Session, student_id: int):
+    """Get areas where student needs improvement"""
+    # Get subjects with low performance
+    low_performance_subjects = db.query(Subject.name).join(Exam).join(ExamSection).join(Question).join(Mark).filter(
+        Mark.student_id == student_id,
+        Mark.marks_obtained / Mark.max_marks < 0.5
+    ).distinct().all()
+    
+    return [
+        {"area": subj.name, "reason": "Below 50% performance"}
+        for subj in low_performance_subjects
+    ]
+
+async def get_student_recommendations(db: Session, student_id: int):
+    """Get personalized recommendations for student"""
+    # This would typically use ML or rule-based recommendations
+    return [
+        "Focus on improving performance in subjects with low scores",
+        "Increase attendance to improve overall performance",
+        "Practice more questions in areas with low CO attainment"
+    ]
 
 # Question Analytics
 @app.get("/question-analytics", response_model=List[QuestionAnalyticsResponse])

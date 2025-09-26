@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { apiClient } from '@/lib/api'
+import { AdminGuard } from '@/components/auth/RoleGuard'
 import { 
   Monitor, RefreshCw, Download, AlertTriangle, CheckCircle, XCircle,
   Server, Database, Users, Activity, Clock, TrendingUp, TrendingDown,
@@ -58,7 +59,7 @@ interface SecurityEvent {
   resolved: boolean
 }
 
-export default function MonitoringPage() {
+function MonitoringPage() {
   const [systemHealth, setSystemHealth] = useState<SystemHealth | null>(null)
   const [services, setServices] = useState<ServiceStatus[]>([])
   const [userActivity, setUserActivity] = useState<UserActivity | null>(null)
@@ -528,5 +529,13 @@ export default function MonitoringPage() {
         </div>
       )}
     </div>
+  )
+}
+
+export default function MonitoringPageWithGuard() {
+  return (
+    <AdminGuard>
+      <MonitoringPage />
+    </AdminGuard>
   )
 }

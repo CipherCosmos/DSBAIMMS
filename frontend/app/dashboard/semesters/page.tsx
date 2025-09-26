@@ -61,8 +61,8 @@ export default function SemestersPage() {
         apiClient.get('/api/semesters'),
         apiClient.get('/api/departments')
       ])
-      setSemesters(semestersData)
-      setDepartments(departmentsData)
+    setSemesters(semestersData || [])
+    setDepartments(departmentsData || [])
     } catch (error) {
       console.error('Error loading data:', error)
       toast.error('Failed to load data')
@@ -200,7 +200,7 @@ export default function SemestersPage() {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {filteredSemesters.map((semester) => (
+              {semesters.map((semester) => (
                 <tr key={semester.id} className="hover:bg-gray-50">
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="flex items-center">

@@ -141,7 +141,7 @@ export default function ReportsPage() {
       setError(null)
 
       const response = await apiClient.get('/api/reports')
-      let reportsData = response.data || []
+      let reportsData = response || []
 
       // Apply filters
       if (filterCategory && filterCategory !== 'All') {
@@ -229,7 +229,7 @@ export default function ReportsPage() {
     try {
       setGeneratingReport(report.id)
       const response = await apiClient.post(`/api/reports/${report.id}/generate`)
-      setReportData(response.data)
+      setReportData(response.data?.data || response.data)
       loadData() // Refresh to get updated file info
     } catch (error) {
       console.error('Error generating report:', error)

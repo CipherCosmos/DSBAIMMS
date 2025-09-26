@@ -29,14 +29,17 @@ export function StudentDashboard() {
           apiClient.getStudentPerformance(user.id)
         ])
 
+        const subjectsData = subjects.data || []
+        const studentPerformanceData = studentPerformance.data?.[0] || {}
+        
         setStats({
-          enrolledSubjects: subjects.length,
-          averageMarks: studentPerformance.average_marks || 0,
-          coAttainment: coAttainment.overall_attainment || 0,
-          poAttainment: poAttainment.overall_attainment || 0,
-          cgpa: studentPerformance.cgpa || 0,
-          attendance: studentPerformance.attendance || 0,
-          ranking: studentPerformance.ranking || 0
+          enrolledSubjects: subjectsData.length,
+          averageMarks: studentPerformanceData.average_marks || 0,
+          coAttainment: coAttainment.data?.overall_attainment || 0,
+          poAttainment: poAttainment.data?.overall_attainment || 0,
+          cgpa: studentPerformanceData.cgpa || 0,
+          attendance: studentPerformanceData.attendance || 0,
+          ranking: studentPerformanceData.ranking || 0
         })
       } catch (error) {
         console.error('Error loading stats:', error)

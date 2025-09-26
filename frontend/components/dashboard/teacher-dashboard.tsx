@@ -26,15 +26,17 @@ export function TeacherDashboard() {
         ])
 
         // Calculate total students from subjects
-        const totalStudents = subjects.reduce((total, subject) => {
+        const subjectsData = subjects.data || []
+        const examsData = exams.data || []
+        const totalStudents = subjectsData.reduce((total, subject) => {
           return total + (subject.student_count || 0)
         }, 0)
 
         setStats({
-          mySubjects: subjects.length,
-          totalExams: exams.length,
+          mySubjects: subjectsData.length,
+          totalExams: examsData.length,
           totalStudents: totalStudents,
-          coAttainment: coAttainment.overall_attainment || 0
+          coAttainment: coAttainment.data?.overall_attainment || 0
         })
       } catch (error) {
         console.error('Error loading stats:', error)

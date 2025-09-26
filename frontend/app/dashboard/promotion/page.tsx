@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '@/hooks/useAuth'
 import { apiClient } from '@/lib/api'
+import { HODGuard } from '@/components/auth/RoleGuard'
 import { 
   GraduationCap, 
   Users, 
@@ -74,7 +75,7 @@ interface PromotionCriteria {
   max_backlogs: number
 }
 
-export default function PromotionPage() {
+function PromotionPage() {
   const { user } = useAuth()
   const [students, setStudents] = useState<Student[]>([])
   const [promotionBatches, setPromotionBatches] = useState<PromotionBatch[]>([])
@@ -104,16 +105,16 @@ export default function PromotionPage() {
     try {
       setLoading(true)
       const [studentsData, batchesData, semestersData, classesData] = await Promise.all([
-        apiClient.get('/api/promotion/eligible-students'),
-        apiClient.get('/api/promotion/batches'),
+        apiClient.getEligibleStudents(),
+        apiClient.getPromotionBatches(),
         apiClient.getSemesters(),
         apiClient.getClasses()
       ])
 
-      setStudents(studentsData.data || [])
-      setPromotionBatches(batchesData.data || [])
-      setSemesters(semestersData.data || [])
-      setClasses(classesData.data || [])
+        setStudents(studentsData || [])
+        setPromotionBatches(batchesData || [])
+        setSemesters(semestersData || [])
+        setClasses(classesData || [])
     } catch (error) {
       console.error('Error loading data:', error)
       toast.error('Failed to load data')
@@ -150,7 +151,7 @@ export default function PromotionPage() {
         remarks: `Promoted from semester ${students.find(s => selectedStudents.includes(s.id))?.current_semester} to ${semesters.find(s => s.id === Number(selectedSemester))?.semester_number}`
       }
 
-      await apiClient.post('/api/promotion/promote', promotionData)
+      await apiClient.promoteStudents(promotionData)
       toast.success(`${selectedStudents.length} students promoted successfully`)
       setSelectedStudents([])
       setShowPromotionForm(false)
@@ -427,7 +428,7 @@ export default function PromotionPage() {
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   <input
                     type="checkbox"
-                    checked={selectedStudents.length === filteredStudents.length && filteredStudents.length > 0}
+                    checked={selectedStudents.length === students.length && students.length > 0}
                     onChange={(e) => e.target.checked ? selectAllEligible() : clearSelection()}
                     className="rounded border-gray-300"
                   />
@@ -462,7 +463,7 @@ export default function PromotionPage() {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {filteredStudents.map((student) => (
+              {students.map((student) => (
                 <tr key={student.id} className={`hover:bg-gray-50 ${getEligibilityColor(student)}`}>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <input
@@ -591,5 +592,13 @@ export default function PromotionPage() {
         </div>
       )}
     </div>
+  )
+}
+
+export default function PromotionPageWithGuard() {
+  return (
+    <HODGuard>
+      <PromotionPage />
+    </HODGuard>
   )
 }

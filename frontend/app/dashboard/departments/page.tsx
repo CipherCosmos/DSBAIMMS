@@ -3,7 +3,8 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useAuth } from '@/hooks/useAuth'
 import { apiClient } from '@/lib/api'
-import { Plus, Edit, Trash2, Users, GraduationCap, Calendar, Clock, BookOpen, UserCheck, Search, Filter, Download, Upload } from 'lucide-react'
+import { AdminGuard } from '@/components/auth/RoleGuard'
+import { Plus, Edit, Trash2, Users, GraduationCap, Calendar, Clock, BookOpen, UserCheck, Search, Filter, Download, Upload, BarChart3, Building, FileText, Copy } from 'lucide-react'
 import Link from 'next/link'
 import { toast } from 'react-hot-toast'
 import { SYSTEM_CONFIG, hasPermission, getAcademicYearString } from '@/lib/config'
@@ -84,7 +85,7 @@ interface HOD {
   has_department: boolean
 }
 
-export default function DepartmentsPage() {
+function DepartmentsPage() {
   const { user } = useAuth()
   const [departments, setDepartments] = useState<Department[]>([])
   const [hods, setHODs] = useState<HOD[]>([])
@@ -103,6 +104,13 @@ export default function DepartmentsPage() {
   const [showBulkActions, setShowBulkActions] = useState(false)
   const [showBulkCreateForm, setShowBulkCreateForm] = useState(false)
   const [showBulkUpdateForm, setShowBulkUpdateForm] = useState(false)
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false)
+  const [showDepartmentAnalytics, setShowDepartmentAnalytics] = useState(false)
+  const [departmentAnalytics, setDepartmentAnalytics] = useState<any>(null)
+  const [showDepartmentStructure, setShowDepartmentStructure] = useState(false)
+  const [departmentStructure, setDepartmentStructure] = useState<any>(null)
+  const [showBulkImport, setShowBulkImport] = useState(false)
+  const [importFile, setImportFile] = useState<File | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
   const [filterActive, setFilterActive] = useState<boolean | null>(null)
   const [sortBy, setSortBy] = useState<'name' | 'code' | 'created_at'>('name')
@@ -141,9 +149,9 @@ export default function DepartmentsPage() {
 
   const loadDepartments = async () => {
     try {
-      const data = await apiClient.getDepartments()
+      const response = await apiClient.getDepartments()
       // Ensure data is an array
-      setDepartments(Array.isArray(data) ? data : [])
+      setDepartments(Array.isArray(response) ? response : [])
     } catch (error) {
       console.error('Error loading departments:', error)
       setDepartments([])
@@ -152,8 +160,8 @@ export default function DepartmentsPage() {
 
   const loadHODs = async () => {
     try {
-      const data = await apiClient.getAvailableHODs()
-      setHODs(Array.isArray(data) ? data : [])
+      const response = await apiClient.getAvailableHODs()
+      setHODs(Array.isArray(response) ? response : [])
     } catch (error) {
       console.error('Error loading HODs:', error)
       setHODs([])
@@ -392,6 +400,96 @@ export default function DepartmentsPage() {
     return hod ? hod.name : 'Unknown HOD'
   }, [hods])
 
+  // Advanced department management functions
+  const handleBulkImport = async () => {
+    if (!importFile) {
+      toast.error('Please select a file to import')
+      return
+    }
+
+    try {
+      setLoading(true)
+      const formData = new FormData()
+      formData.append('file', importFile)
+      
+      const response = await apiClient.post('/api/departments/bulk-import', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      })
+      
+      toast.success(`Successfully imported ${response.data.imported_count} departments`)
+      setShowBulkImport(false)
+      setImportFile(null)
+      loadData()
+    } catch (error: any) {
+      toast.error(error.response?.data?.detail || 'Import failed')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleDepartmentAnalytics = async (departmentId: number) => {
+    try {
+      const response = await apiClient.get(`/api/departments/${departmentId}/analytics`)
+      setDepartmentAnalytics(response.data?.data || null)
+      setShowDepartmentAnalytics(true)
+    } catch (error: any) {
+      toast.error('Failed to load department analytics')
+    }
+  }
+
+  const handleDepartmentStructure = async (departmentId: number) => {
+    try {
+      const response = await apiClient.get(`/api/departments/${departmentId}/structure`)
+      setDepartmentStructure(response.data?.data || null)
+      setShowDepartmentStructure(true)
+    } catch (error: any) {
+      toast.error('Failed to load department structure')
+    }
+  }
+
+  const handleGenerateDepartmentReport = async (departmentId: number) => {
+    try {
+      const response = await apiClient.get(`/api/departments/${departmentId}/report`, {
+        responseType: 'blob'
+      })
+      
+      const blob = new Blob([response.data], { type: 'application/pdf' })
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `department_report_${departmentId}.pdf`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      window.URL.revokeObjectURL(url)
+      toast.success('Department report generated successfully')
+    } catch (error: any) {
+      toast.error('Failed to generate department report')
+    }
+  }
+
+  const handleDuplicateDepartment = async (department: Department) => {
+    try {
+      const duplicateData = {
+        name: `${department.name} (Copy)`,
+        code: `${department.code}_COPY`,
+        description: department.description,
+        duration_years: department.duration_years,
+        hod_id: department.hod_id,
+        academic_year: department.academic_year,
+        semester_count: department.semester_count,
+        current_semester: department.current_semester,
+        is_active: false // Start as inactive for review
+      }
+      
+      await apiClient.createDepartment(duplicateData)
+      toast.success('Department duplicated successfully')
+      loadData()
+    } catch (error: any) {
+      toast.error('Failed to duplicate department')
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -465,6 +563,102 @@ export default function DepartmentsPage() {
             )}
           </div>
         </div>
+
+        {/* Advanced Features Toolbar */}
+        <div className="bg-white p-4 rounded-lg shadow mb-6">
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
+              className="bg-gray-100 text-gray-700 px-4 py-2 rounded-md hover:bg-gray-200 flex items-center gap-2"
+            >
+              <Filter className="h-4 w-4" />
+              Advanced Filters
+            </button>
+            <button
+              onClick={() => setShowBulkImport(!showBulkImport)}
+              className="bg-gray-100 text-gray-700 px-4 py-2 rounded-md hover:bg-gray-200 flex items-center gap-2"
+            >
+              <Upload className="h-4 w-4" />
+              Bulk Import
+            </button>
+          </div>
+        </div>
+
+        {/* Advanced Filters */}
+        {showAdvancedFilters && (
+          <div className="bg-white p-4 rounded-lg shadow mb-6">
+            <h3 className="text-lg font-semibold mb-4">Advanced Filters</h3>
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Created Date From</label>
+                <input type="date" className="w-full px-3 py-2 border border-gray-300 rounded-md" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Created Date To</label>
+                <input type="date" className="w-full px-3 py-2 border border-gray-300 rounded-md" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Academic Year</label>
+                <select className="w-full px-3 py-2 border border-gray-300 rounded-md">
+                  <option value="">All Years</option>
+                  <option value="2023-24">2023-24</option>
+                  <option value="2024-25">2024-25</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Duration</label>
+                <select className="w-full px-3 py-2 border border-gray-300 rounded-md">
+                  <option value="">All Durations</option>
+                  <option value="2">2 Years</option>
+                  <option value="3">3 Years</option>
+                  <option value="4">4 Years</option>
+                </select>
+              </div>
+            </div>
+            <div className="flex justify-end mt-4">
+              <button
+                onClick={() => setShowAdvancedFilters(false)}
+                className="bg-gray-500 text-white px-4 py-2 rounded-md hover:bg-gray-600"
+              >
+                Close Filters
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Bulk Import */}
+        {showBulkImport && (
+          <div className="bg-white p-4 rounded-lg shadow mb-6">
+            <h3 className="text-lg font-semibold mb-4">Bulk Import Departments</h3>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Select CSV/Excel File</label>
+                <input
+                  type="file"
+                  accept=".csv,.xlsx,.xls"
+                  onChange={(e) => setImportFile(e.target.files?.[0] || null)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                />
+              </div>
+              <div className="flex space-x-2">
+                <button
+                  onClick={handleBulkImport}
+                  disabled={!importFile || loading}
+                  className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 flex items-center gap-2 disabled:opacity-50"
+                >
+                  <Upload className="h-4 w-4" />
+                  Import Departments
+                </button>
+                <button
+                  onClick={() => setShowBulkImport(false)}
+                  className="bg-gray-500 text-white px-4 py-2 rounded-md hover:bg-gray-600"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Search and Filter Bar */}
         <div className="bg-white p-4 rounded-lg shadow-sm border">
@@ -946,7 +1140,7 @@ export default function DepartmentsPage() {
 
       {/* Departments Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {filteredAndSortedDepartments && Array.isArray(filteredAndSortedDepartments) && filteredAndSortedDepartments.map((dept) => (
+        {departments && Array.isArray(departments) && departments.map((dept) => (
           <div key={dept.id} className={`bg-white rounded-lg shadow-md p-6 border-l-4 ${dept.is_active ? 'border-green-500' : 'border-red-500'}`}>
             <div className="flex items-start justify-between mb-4">
               <div className="flex items-center gap-3">
@@ -972,7 +1166,7 @@ export default function DepartmentsPage() {
                 </div>
               </div>
               {user?.role === 'admin' && !showBulkActions && (
-                <div className="flex gap-2">
+                <div className="flex gap-1">
                   {canUpdate && (
                     <button 
                       onClick={() => handleEdit(dept)}
@@ -982,6 +1176,34 @@ export default function DepartmentsPage() {
                       <Edit className="h-4 w-4" />
                     </button>
                   )}
+                  <button 
+                    onClick={() => handleDepartmentAnalytics(dept.id)}
+                    className="p-1 text-gray-400 hover:text-green-600 transition-colors"
+                    title="Department Analytics"
+                  >
+                    <BarChart3 className="h-4 w-4" />
+                  </button>
+                  <button 
+                    onClick={() => handleDepartmentStructure(dept.id)}
+                    className="p-1 text-gray-400 hover:text-purple-600 transition-colors"
+                    title="Department Structure"
+                  >
+                    <Building className="h-4 w-4" />
+                  </button>
+                  <button 
+                    onClick={() => handleGenerateDepartmentReport(dept.id)}
+                    className="p-1 text-gray-400 hover:text-orange-600 transition-colors"
+                    title="Generate Report"
+                  >
+                    <FileText className="h-4 w-4" />
+                  </button>
+                  <button 
+                    onClick={() => handleDuplicateDepartment(dept)}
+                    className="p-1 text-gray-400 hover:text-indigo-600 transition-colors"
+                    title="Duplicate Department"
+                  >
+                    <Copy className="h-4 w-4" />
+                  </button>
                   {canDelete && (
                     <button
                       onClick={() => handleDelete(dept.id)}
@@ -1099,7 +1321,7 @@ export default function DepartmentsPage() {
       </div>
 
       {/* No Results */}
-      {filteredAndSortedDepartments.length === 0 && !loading && (
+      {departments.length === 0 && !loading && (
         <div className="text-center py-12">
           <GraduationCap className="h-12 w-12 text-gray-400 mx-auto mb-4" />
           <h3 className="text-lg font-medium text-gray-900 mb-2">No departments found</h3>
@@ -1120,6 +1342,79 @@ export default function DepartmentsPage() {
           )}
         </div>
       )}
+
+      {/* Department Analytics Modal */}
+      {showDepartmentAnalytics && departmentAnalytics && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-4xl w-full max-h-[80vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-semibold">Department Analytics</h3>
+              <button
+                onClick={() => setShowDepartmentAnalytics(false)}
+                className="bg-gray-500 text-white px-4 py-2 rounded-md hover:bg-gray-600"
+              >
+                Close
+              </button>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="bg-blue-50 p-4 rounded-lg">
+                <h4 className="font-semibold text-blue-900">Total Students</h4>
+                <p className="text-2xl font-bold text-blue-600">{departmentAnalytics.total_students || 0}</p>
+              </div>
+              <div className="bg-green-50 p-4 rounded-lg">
+                <h4 className="font-semibold text-green-900">Active Classes</h4>
+                <p className="text-2xl font-bold text-green-600">{departmentAnalytics.active_classes || 0}</p>
+              </div>
+              <div className="bg-purple-50 p-4 rounded-lg">
+                <h4 className="font-semibold text-purple-900">Total Subjects</h4>
+                <p className="text-2xl font-bold text-purple-600">{departmentAnalytics.total_subjects || 0}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Department Structure Modal */}
+      {showDepartmentStructure && departmentStructure && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-4xl w-full max-h-[80vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-semibold">Department Structure</h3>
+              <button
+                onClick={() => setShowDepartmentStructure(false)}
+                className="bg-gray-500 text-white px-4 py-2 rounded-md hover:bg-gray-600"
+              >
+                Close
+              </button>
+            </div>
+            <div className="space-y-4">
+              {departmentStructure.semesters?.map((semester: any, index: number) => (
+                <div key={index} className="border rounded-lg p-4">
+                  <h4 className="font-semibold mb-2">Semester {semester.number}</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <p className="text-sm text-gray-600">Classes: {semester.classes?.length || 0}</p>
+                      <p className="text-sm text-gray-600">Students: {semester.students || 0}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-gray-600">Subjects: {semester.subjects?.length || 0}</p>
+                      <p className="text-sm text-gray-600">Teachers: {semester.teachers || 0}</p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
+  )
+}
+
+export default function DepartmentsPageWithGuard() {
+  return (
+    <AdminGuard>
+      <DepartmentsPage />
+    </AdminGuard>
   )
 }

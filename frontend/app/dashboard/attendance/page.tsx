@@ -100,9 +100,9 @@ export default function AttendancePage() {
         apiClient.getClasses()
       ])
 
-      setAttendances(attendancesData.data || [])
-      setSubjects(subjectsData.data || [])
-      setClasses(classesData.data || [])
+    setAttendances(attendancesData || [])
+    setSubjects(subjectsData || [])
+    setClasses(classesData || [])
     } catch (error) {
       console.error('Error loading data:', error)
       toast.error('Failed to load data')
@@ -114,7 +114,7 @@ export default function AttendancePage() {
   const loadStudents = async (classId: number) => {
     try {
       const response = await apiClient.getClassStudents(classId)
-      setStudents(response.data || [])
+      setStudents(response || [])
     } catch (error) {
       console.error('Error loading students:', error)
       toast.error('Failed to load students')
@@ -391,7 +391,7 @@ export default function AttendancePage() {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {filteredAttendances.map((attendance) => (
+              {attendances.map((attendance) => (
                 <tr key={attendance.id} className="hover:bg-gray-50">
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="text-sm font-medium text-gray-900">

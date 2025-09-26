@@ -29,11 +29,11 @@ export function HODDashboard() {
         ])
 
         setStats({
-          departmentUsers: users.length,
-          departmentSubjects: subjects.length,
-          departmentClasses: classes.length,
-          coAttainment: coAttainment.overall_attainment || 0,
-          poAttainment: poAttainment.overall_attainment || 0
+          departmentUsers: users.data?.length || 0,
+          departmentSubjects: subjects.data?.length || 0,
+          departmentClasses: classes.data?.length || 0,
+          coAttainment: coAttainment.data?.overall_attainment || 0,
+          poAttainment: poAttainment.data?.overall_attainment || 0
         })
       } catch (error) {
         console.error('Error loading stats:', error)
