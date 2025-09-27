@@ -92,6 +92,9 @@ CREATE TABLE classes (
     department_id INTEGER NOT NULL,
     class_teacher_id INTEGER,
     cr_id INTEGER,
+    max_students INTEGER DEFAULT 60,
+    description TEXT,
+    is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     FOREIGN KEY (department_id) REFERENCES departments(id),
@@ -105,12 +108,14 @@ CREATE TABLE subjects (
     id SERIAL PRIMARY KEY,
     name VARCHAR(100) NOT NULL,
     code VARCHAR(20) UNIQUE NOT NULL,
+    description TEXT,
     credits INTEGER DEFAULT 3,
     theory_marks INTEGER DEFAULT 100,
     practical_marks INTEGER DEFAULT 0,
     department_id INTEGER NOT NULL,
-    class_id INTEGER NOT NULL,
-    teacher_id INTEGER NOT NULL,
+    class_id INTEGER,
+    teacher_id INTEGER,
+    is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     FOREIGN KEY (department_id) REFERENCES departments(id),
@@ -403,6 +408,52 @@ ALTER TABLE questions ADD COLUMN IF NOT EXISTS is_optional BOOLEAN DEFAULT FALSE
 ALTER TABLE questions ADD COLUMN IF NOT EXISTS is_sub_question BOOLEAN DEFAULT FALSE;
 ALTER TABLE questions ADD COLUMN IF NOT EXISTS sub_question_text TEXT;
 ALTER TABLE questions ADD COLUMN IF NOT EXISTS sub_question_marks DECIMAL(5,2);
+ALTER TABLE questions ADD COLUMN IF NOT EXISTS co_weight DECIMAL(3,2) DEFAULT 1.0;
+ALTER TABLE questions ADD COLUMN IF NOT EXISTS po_auto_mapped BOOLEAN DEFAULT FALSE;
+ALTER TABLE questions ADD COLUMN IF NOT EXISTS created_by INTEGER REFERENCES users(id);
+
+-- Add missing columns to users table
+ALTER TABLE users ADD COLUMN IF NOT EXISTS first_name VARCHAR(50);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS last_name VARCHAR(50);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS date_of_birth TIMESTAMP WITH TIME ZONE;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS gender VARCHAR(10);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS qualification VARCHAR(100);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS experience_years INTEGER DEFAULT 0;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS specializations TEXT;
+
+-- Add missing columns to marks table
+ALTER TABLE marks ADD COLUMN IF NOT EXISTS is_attempted BOOLEAN DEFAULT TRUE;
+ALTER TABLE marks ADD COLUMN IF NOT EXISTS attempt_number INTEGER DEFAULT 1;
+ALTER TABLE marks ADD COLUMN IF NOT EXISTS is_best_attempt BOOLEAN DEFAULT FALSE;
+ALTER TABLE marks ADD COLUMN IF NOT EXISTS is_counted_for_total BOOLEAN DEFAULT TRUE;
+ALTER TABLE marks ADD COLUMN IF NOT EXISTS co_contribution DECIMAL(5,2) DEFAULT 0.0;
+ALTER TABLE marks ADD COLUMN IF NOT EXISTS po_contribution DECIMAL(5,2) DEFAULT 0.0;
+ALTER TABLE marks ADD COLUMN IF NOT EXISTS bloom_level VARCHAR(20);
+ALTER TABLE marks ADD COLUMN IF NOT EXISTS difficulty_level VARCHAR(20);
+
+-- Create teacher_subjects table
+CREATE TABLE IF NOT EXISTS teacher_subjects (
+    id SERIAL PRIMARY KEY,
+    teacher_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    subject_id INTEGER NOT NULL REFERENCES subjects(id) ON DELETE CASCADE,
+    assigned_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    UNIQUE(teacher_id, subject_id)
+);
+
+-- Create attendance table
+CREATE TABLE IF NOT EXISTS attendance (
+    id SERIAL PRIMARY KEY,
+    student_id INTEGER NOT NULL REFERENCES users(id),
+    subject_id INTEGER NOT NULL REFERENCES subjects(id),
+    class_id INTEGER NOT NULL REFERENCES classes(id),
+    attendance_date TIMESTAMP NOT NULL,
+    status VARCHAR(20) NOT NULL,
+    remarks TEXT,
+    marked_by INTEGER NOT NULL REFERENCES users(id),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    UNIQUE(student_id, subject_id, attendance_date)
+);
 
 -- Create indexes for better performance
 CREATE INDEX IF NOT EXISTS idx_question_banks_department_id ON question_banks(department_id);

@@ -10,6 +10,8 @@ import { Loader2 } from 'lucide-react'
 export default function DashboardPage() {
   const { user, isLoading } = useAuth()
 
+  console.log('DashboardPage - user:', user, 'isLoading:', isLoading)
+
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -31,22 +33,35 @@ export default function DashboardPage() {
     )
   }
 
-  switch (user.role) {
+  try {
+    console.log('Rendering dashboard for role:', user.role)
+    
+    switch (user.role) {
       case 'admin':
         return <EnhancedAdminDashboard />
-    case 'hod':
-      return <HODDashboard />
-    case 'teacher':
-      return <TeacherDashboard />
-    case 'student':
-      return <StudentDashboard />
-    default:
-      return (
-        <div className="min-h-screen flex items-center justify-center bg-gray-50">
-          <div className="text-center">
-            <p className="text-red-600">Invalid user role: {user.role}</p>
+      case 'hod':
+        return <HODDashboard />
+      case 'teacher':
+        return <TeacherDashboard />
+      case 'student':
+        return <StudentDashboard />
+      default:
+        return (
+          <div className="min-h-screen flex items-center justify-center bg-gray-50">
+            <div className="text-center">
+              <p className="text-red-600">Invalid user role: {user.role}</p>
+            </div>
           </div>
+        )
+    }
+  } catch (error) {
+    console.error('Error rendering dashboard:', error)
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <p className="text-red-600">Error loading dashboard: {error instanceof Error ? error.message : 'Unknown error'}</p>
         </div>
-      )
+      </div>
+    )
   }
 }

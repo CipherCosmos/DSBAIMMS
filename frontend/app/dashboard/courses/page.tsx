@@ -74,8 +74,7 @@ export default function CoursesPage() {
         apiClient.getSubjects({ student_id: user?.id }),
         apiClient.getExams({ student_id: user?.id }),
         apiClient.getMarks({ student_id: user?.id }),
-        // Mock attendance data - would come from backend
-        Promise.resolve([])
+        apiClient.get('/api/attendance', { params: { student_id: user?.id } })
       ])
       // Ensure data is an array
       setSubjects(Array.isArray(subjectsData) ? subjectsData : [])

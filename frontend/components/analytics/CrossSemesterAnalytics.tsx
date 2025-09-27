@@ -116,11 +116,11 @@ export function CrossSemesterAnalytics() {
         apiClient.get('/api/departments'),
         apiClient.get('/api/semesters')
       ])
-      setDepartments(departmentsData)
-      setSemesters(semestersData)
+      setDepartments(departmentsData.data || [])
+      setSemesters(semestersData.data || [])
       
       // Set default selections
-      const recentSemesters = semestersData.slice(-4).map((s: Semester) => s.id)
+      const recentSemesters = (semestersData.data || []).slice(-4).map((s: Semester) => s.id)
       setSelectedSemesters(recentSemesters)
       setSelectedMetrics(['co_attainment', 'student_performance'])
     } catch (error) {
@@ -141,7 +141,7 @@ export function CrossSemesterAnalytics() {
       if (selectedDepartment) params.department_id = selectedDepartment
 
       const response = await apiClient.get('/api/analytics/cross-semester-comparison', { params })
-      setAnalyticsData(response)
+      setAnalyticsData(response.data || [])
     } catch (error) {
       console.error('Error loading analytics data:', error)
       toast.error('Failed to load cross-semester analytics')

@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { toast } from 'sonner'
+import toast from 'react-hot-toast'
 
 interface Class {
   id: number
@@ -71,7 +71,7 @@ export default function ClassesManager({ departmentId }: ClassesManagerProps) {
       if (departmentId) params.department_id = departmentId
 
       const data = await apiClient.getClasses(params)
-      setClasses(data)
+      setClasses(data.data || [])
     } catch (error) {
       console.error('Failed to fetch classes:', error)
       toast.error('Failed to fetch classes')
@@ -89,10 +89,10 @@ export default function ClassesManager({ departmentId }: ClassesManagerProps) {
         apiClient.getUsers({ role: 'student' })
       ])
 
-      setSemesters(semestersData)
-      setDepartments(departmentsData)
-      setTeachers(teachersData)
-      setStudents(studentsData)
+      setSemesters(semestersData.data || [])
+      setDepartments(departmentsData.data || [])
+      setTeachers(teachersData.data || [])
+      setStudents(studentsData.data || [])
     } catch (error) {
       console.error('Failed to fetch initial data:', error)
     }

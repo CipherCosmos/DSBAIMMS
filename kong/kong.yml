@@ -24,6 +24,7 @@ plugins:
         - Authorization
       exposed_headers:
         - X-Auth-Token
+        - Set-Cookie
       credentials: true
       max_age: 3600
 
@@ -37,17 +38,35 @@ services:
         strip_path: true
         path_handling: v0
 
+  - name: profile-service
+    url: http://profile-service:8025
+    routes:
+      - name: profiles
+        paths:
+          - /api/profile
+        strip_path: true
+        path_handling: v0
+
   - name: user-service
     url: http://user-service:8011
     routes:
       - name: users
         paths:
           - /api/users
-        strip_path: false
+        strip_path: true
+        path_handling: v0
+
+  - name: department-service
+    url: http://department-service:8012
+    routes:
+      - name: departments
+        paths:
+          - /api/departments
+        strip_path: true
         path_handling: v0
 
   - name: classes-service
-    url: http://classes-service:8004/classes
+    url: http://classes-service:8004
     routes:
       - name: classes
         paths:
@@ -56,7 +75,7 @@ services:
         path_handling: v0
 
   - name: subjects-service
-    url: http://subjects-service:8005/subjects
+    url: http://subjects-service:8005
     routes:
       - name: subjects
         paths:
@@ -73,125 +92,13 @@ services:
         strip_path: true
         path_handling: v0
 
-  - name: user-stats-service
-    url: http://user-service:8011/stats
-    routes:
-      - name: users-stats
-        paths:
-          - /api/users/stats
-        strip_path: true
-        path_handling: v0
-
-  - name: department-service
-    url: http://department-service:8012
-    routes:
-      - name: departments-available-hods
-        paths:
-          - /api/departments/available-hods
-        strip_path: false
-        path_handling: v0
-      - name: departments
-        paths:
-          - /api/departments
-        strip_path: false
-        path_handling: v0
-      - name: smart-cos
-        paths:
-          - /api/smart-cos
-        strip_path: true
-        path_handling: v0
-      - name: smart-pos
-        paths:
-          - /api/smart-pos
-        strip_path: true
-        path_handling: v0
-      - name: bulk-cos
-        paths:
-          - /api/bulk-cos
-        strip_path: true
-        path_handling: v0
-      - name: bulk-pos
-        paths:
-          - /api/bulk-pos
-        strip_path: true
-        path_handling: v0
-      - name: co-po-analytics
-        paths:
-          - /api/co-po-analytics
-        strip_path: true
-        path_handling: v0
-      - name: co-po-recommendations
-        paths:
-          - /api/co-po-recommendations
-        strip_path: false
-        path_handling: v0
-      - name: semester-enrollments
-        paths:
-          - /api/semester-enrollments
-        strip_path: false
-        path_handling: v0
-      - name: cos
-        paths:
-          - /api/cos
-        strip_path: true
-        path_handling: v0
-      - name: pos
-        paths:
-          - /api/pos
-        strip_path: true
-        path_handling: v0
-      - name: co-po-mappings
-        paths:
-          - /api/co-po-mappings
-        strip_path: true
-        path_handling: v0
-
-  - name: exam-service
-    url: http://exam-service:8013
+  - name: exams-service
+    url: http://exams-service:8013
     routes:
       - name: exams
         paths:
           - /api/exams
-        strip_path: true
-        path_handling: v0
-      - name: questions
-        paths:
           - /api/questions
-        strip_path: true
-        path_handling: v0
-      - name: questions-enhanced
-        paths:
-          - /api/questions/enhanced
-        strip_path: true
-        path_handling: v0
-      - name: exam-sections
-        paths:
-          - /api/exam-sections
-        strip_path: true
-        path_handling: v0
-      - name: exam-analytics
-        paths:
-          - /api/exams/*/analytics
-        strip_path: true
-        path_handling: v0
-      - name: exam-export
-        paths:
-          - /api/exams/*/export
-        strip_path: true
-        path_handling: v0
-      - name: smart-marks
-        paths:
-          - /api/exams/*/smart-marks
-        strip_path: true
-        path_handling: v0
-      - name: bulk-questions
-        paths:
-          - /api/exams/*/bulk-questions
-        strip_path: true
-        path_handling: v0
-      - name: bulk-marks
-        paths:
-          - /api/exams/*/bulk-marks
         strip_path: true
         path_handling: v0
 
@@ -201,67 +108,6 @@ services:
       - name: marks
         paths:
           - /api/marks
-        strip_path: true
-        path_handling: v0
-      - name: marks-template
-        paths:
-          - /api/marks/*/template
-        strip_path: true
-        path_handling: v0
-      - name: smart-marks-calculation
-        paths:
-          - /api/marks/smart-calculation
-        strip_path: true
-        path_handling: v0
-      - name: marks-analytics
-        paths:
-          - /api/marks/analytics
-        strip_path: true
-        path_handling: v0
-      - name: marks-export
-        paths:
-          - /api/marks/export
-        strip_path: true
-        path_handling: v0
-      - name: marks-bulk
-        paths:
-          - /api/marks/bulk
-        strip_path: true
-        path_handling: v0
-
-  - name: analytics-dashboard-stats-service
-    url: http://analytics-service:8015/dashboard-stats
-    routes:
-      - name: analytics-dashboard-stats
-        paths:
-          - /api/analytics/dashboard-stats
-        strip_path: true
-        path_handling: v0
-
-  - name: analytics-co-attainment-service
-    url: http://analytics-service:8015/co-attainment
-    routes:
-      - name: analytics-co-attainment
-        paths:
-          - /api/analytics/co-attainment
-        strip_path: true
-        path_handling: v0
-
-  - name: analytics-po-attainment-service
-    url: http://analytics-service:8015/po-attainment
-    routes:
-      - name: analytics-po-attainment
-        paths:
-          - /api/analytics/po-attainment
-        strip_path: true
-        path_handling: v0
-
-  - name: analytics-student-performance-service
-    url: http://analytics-service:8015/student-performance
-    routes:
-      - name: analytics-student-performance
-        paths:
-          - /api/analytics/student-performance
         strip_path: true
         path_handling: v0
 
@@ -274,26 +120,30 @@ services:
         strip_path: true
         path_handling: v0
 
+  - name: notifications-service
+    url: http://notification-service:8018
+    routes:
+      - name: notifications
+        paths:
+          - /api/notifications
+        strip_path: true
+        path_handling: v0
+
+  - name: copo-service
+    url: http://copo-service:8026
+    routes:
+      - name: copo
+        paths:
+          - /api/cos
+          - /api/pos
+          - /api/copo-mappings
+          - /api/copo
+        strip_path: true
+        path_handling: v0
+
   - name: bulk-service
     url: http://bulk-service:8016
     routes:
-      - name: bulk-users
-        paths:
-          - /api/users/bulk-create
-          - /api/users/bulk-update
-          - /api/users/bulk-delete
-        strip_path: false
-        path_handling: v0
-      - name: bulk-upload
-        paths:
-          - /api/bulk/upload
-        strip_path: true
-        path_handling: v0
-      - name: bulk-templates
-        paths:
-          - /api/bulk/template
-        strip_path: false
-        path_handling: v0
       - name: bulk
         paths:
           - /api/bulk
@@ -303,48 +153,9 @@ services:
   - name: export-service
     url: http://export-service:8017
     routes:
-      - name: export-users
+      - name: exports
         paths:
-          - /api/exports/users/csv
-        strip_path: false
-        path_handling: v0
-      - name: export-marks
-        paths:
-          - /api/exports/marks
-        strip_path: true
-        path_handling: v0
-      - name: export-analytics
-        paths:
-          - /api/exports/analytics
-        strip_path: true
-        path_handling: v0
-      - name: export-co-attainment
-        paths:
-          - /api/exports/co-attainment
-        strip_path: true
-        path_handling: v0
-      - name: export-comprehensive-report
-        paths:
-          - /api/exports/comprehensive-report
-        strip_path: true
-        path_handling: v0
-      - name: export-reports
-        paths:
-          - /api/exports/reports
-        strip_path: true
-        path_handling: v0
-
-  - name: notification-service
-    url: http://notification-service:8018/notifications
-    routes:
-      - name: notifications
-        paths:
-          - /api/notifications
-        strip_path: true
-        path_handling: v0
-      - name: notifications-ws
-        paths:
-          - /api/notifications/ws
+          - /api/exports
         strip_path: true
         path_handling: v0
 
@@ -356,55 +167,13 @@ services:
           - /api/files
         strip_path: true
         path_handling: v0
-      - name: files-download
-        paths:
-          - /api/files/*/download
-        strip_path: true
-        path_handling: v0
-      - name: files-preview
-        paths:
-          - /api/files/*/preview
-        strip_path: true
-        path_handling: v0
 
   - name: questionbank-service
     url: http://questionbank-service:8020
     routes:
-      - name: questionbank
+      - name: questionbanks
         paths:
-          - /api/questionbank
-        strip_path: true
-        path_handling: v0
-      - name: questionbank-stats
-        paths:
-          - /api/questionbank/*/stats
-        strip_path: true
-        path_handling: v0
-
-  - name: monitoring-health-service
-    url: http://monitoring-service:8021/health
-    routes:
-      - name: monitoring-health
-        paths:
-          - /api/monitoring/health
-        strip_path: true
-        path_handling: v0
-
-  - name: monitoring-metrics-service
-    url: http://monitoring-service:8021/metrics
-    routes:
-      - name: monitoring-metrics
-        paths:
-          - /api/monitoring/metrics
-        strip_path: true
-        path_handling: v0
-
-  - name: monitoring-alerts-service
-    url: http://monitoring-service:8021/alerts
-    routes:
-      - name: monitoring-alerts
-        paths:
-          - /api/monitoring/alerts
+          - /api/questionbanks
         strip_path: true
         path_handling: v0
 
@@ -414,32 +183,5 @@ services:
       - name: monitoring
         paths:
           - /api/monitoring
-        strip_path: true
-        path_handling: v0
-
-  # Enhanced Services
-  - name: enhanced-exam-service
-    url: http://exam-service:8013
-    routes:
-      - name: enhanced-exam
-        paths:
-          - /api/exams/*/optional-questions
-          - /api/exams/*/auto-calculation
-          - /api/exams/*/bulk-questions
-          - /api/exams/*/bulk-marks
-          - /api/exams/*/enhanced
-        strip_path: true
-        path_handling: v0
-
-  - name: enhanced-analytics-service
-    url: http://analytics-service:8015
-    routes:
-      - name: enhanced-analytics
-        paths:
-          - /api/analytics/dashboard-stats
-          - /api/analytics/co-attainment
-          - /api/analytics/po-attainment
-          - /api/analytics/student-performance
-          - /api/analytics/recalculate-attainment
         strip_path: true
         path_handling: v0

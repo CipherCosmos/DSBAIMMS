@@ -27,7 +27,7 @@ interface UserProfile {
 }
 
 export default function ProfilePage() {
-  const { user, updateUser } = useAuth()
+  const { user } = useAuth()
   const [profile, setProfile] = useState<UserProfile | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -35,8 +35,8 @@ export default function ProfilePage() {
   const [showPasswordForm, setShowPasswordForm] = useState(false)
   const [showCurrentPassword, setShowCurrentPassword] = useState(false)
   const [showNewPassword, setShowNewPassword] = useState(false)
-  const [departments, setDepartments] = useState([])
-  const [classes, setClasses] = useState([])
+  const [departments, setDepartments] = useState<any[]>([])
+  const [classes, setClasses] = useState<any[]>([])
 
   // Profile form data
   const [profileData, setProfileData] = useState({
@@ -64,16 +64,20 @@ export default function ProfilePage() {
   const loadProfile = async () => {
     try {
       setLoading(true)
-        const data = await apiClient.getCurrentUser()
-        setProfile(data)
-      setProfileData({
-        first_name: data.first_name || '',
-        last_name: data.last_name || '',
-        email: data.email || '',
-        phone: data.phone || '',
-        department_id: data.department_id?.toString() || '',
-        class_id: data.class_id?.toString() || ''
-      })
+      
+      // Load user profile data from Profile Service
+      const data = await apiClient.getProfile()
+      if (data.success) {
+        setProfile(data.data)
+        setProfileData({
+          first_name: data.data?.first_name || '',
+          last_name: data.data?.last_name || '',
+          email: data.data?.email || '',
+          phone: data.data?.phone || '',
+          department_id: data.data?.department_id?.toString() || '',
+          class_id: data.data?.class_id?.toString() || ''
+        })
+      }
     } catch (error) {
       console.error('Error loading profile:', error)
       toast.error('Failed to load profile')
@@ -85,7 +89,7 @@ export default function ProfilePage() {
   const loadDepartments = async () => {
       try {
         const data = await apiClient.getDepartments()
-        setDepartments(Array.isArray(data) ? data : [])
+        setDepartments(Array.isArray(data.data) ? data.data : [])
       } catch (error) {
         console.error('Error loading departments:', error)
         setDepartments([])
@@ -95,7 +99,7 @@ export default function ProfilePage() {
   const loadClasses = async () => {
       try {
         const data = await apiClient.getClasses()
-        setClasses(Array.isArray(data) ? data : [])
+        setClasses(Array.isArray(data.data) ? data.data : [])
       } catch (error) {
         console.error('Error loading classes:', error)
         setClasses([])
@@ -106,12 +110,14 @@ export default function ProfilePage() {
     e.preventDefault()
     setSaving(true)
     try {
-      await apiClient.updateUser(user?.id!, profileData)
-      toast.success('Profile updated successfully')
-      setEditing(false)
-      loadProfile()
+      const response = await apiClient.updateProfile(profileData)
+      if (response.success) {
+        toast.success('Profile updated successfully')
+        setEditing(false)
+        loadProfile()
+      }
     } catch (error: any) {
-      toast.error(error.detail || 'Failed to update profile')
+      toast.error(error.message || 'Failed to update profile')
     } finally {
       setSaving(false)
     }

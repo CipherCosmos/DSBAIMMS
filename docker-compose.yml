@@ -78,6 +78,23 @@ services:
       restart_policy:
         condition: on-failure
 
+  profile-service:
+    build:
+      context: .
+      dockerfile: services/profile/Dockerfile
+    ports:
+      - "8025:8025"
+    environment:
+      DATABASE_URL: postgresql://lms_user:lms_password@postgres:5432/lms_db
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      - postgres
+      - redis
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+
   user-service:
     build:
       context: .
@@ -100,7 +117,7 @@ services:
       context: .
       dockerfile: services/classes/Dockerfile
     ports:
-      - "8023:8004"
+      - "8004:8004"
     environment:
       DATABASE_URL: postgresql://lms_user:lms_password@postgres:5432/lms_db
       REDIS_URL: redis://redis:6379
@@ -119,7 +136,7 @@ services:
       context: .
       dockerfile: services/subjects/Dockerfile
     ports:
-      - "8024:8005"
+      - "8005:8005"
     environment:
       DATABASE_URL: postgresql://lms_user:lms_password@postgres:5432/lms_db
       REDIS_URL: redis://redis:6379
@@ -138,12 +155,63 @@ services:
       context: .
       dockerfile: services/semesters/Dockerfile
     ports:
-      - "8022:8006"
+      - "8006:8006"
     environment:
       DATABASE_URL: postgresql://lms_user:lms_password@postgres:5432/lms_db
       REDIS_URL: redis://redis:6379
       KAFKA_URL: kafka:9092
       SERVICE_PORT: 8006
+    depends_on:
+      - postgres
+      - redis
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+
+  exams-service:
+    build:
+      context: .
+      dockerfile: services/exams/Dockerfile
+    ports:
+      - "8013:8013"
+    environment:
+      DATABASE_URL: postgresql://lms_user:lms_password@postgres:5432/lms_db
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      - postgres
+      - redis
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+
+  marks-service:
+    build:
+      context: .
+      dockerfile: services/marks/Dockerfile
+    ports:
+      - "8014:8014"
+    environment:
+      DATABASE_URL: postgresql://lms_user:lms_password@postgres:5432/lms_db
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      - postgres
+      - redis
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+
+  analytics-service:
+    build:
+      context: .
+      dockerfile: services/analytics/Dockerfile
+    ports:
+      - "8015:8015"
+    environment:
+      DATABASE_URL: postgresql://lms_user:lms_password@postgres:5432/lms_db
+      REDIS_URL: redis://redis:6379
     depends_on:
       - postgres
       - redis
@@ -169,96 +237,7 @@ services:
       restart_policy:
         condition: on-failure
 
-  exam-service:
-    build:
-      context: .
-      dockerfile: services/exams/Dockerfile
-    ports:
-      - "8013:8013"
-    environment:
-      DATABASE_URL: postgresql://lms_user:lms_password@postgres:5432/lms_db
-      REDIS_URL: redis://redis:6379
-      KAFKA_URL: kafka:9092
-    depends_on:
-      - postgres
-      - redis
-      - kafka
-    deploy:
-      replicas: 1
-      restart_policy:
-        condition: on-failure
 
-  marks-service:
-    build:
-      context: .
-      dockerfile: services/marks/Dockerfile
-    ports:
-      - "8014:8014"
-    environment:
-      DATABASE_URL: postgresql://lms_user:lms_password@postgres:5432/lms_db
-      REDIS_URL: redis://redis:6379
-      KAFKA_URL: kafka:9092
-    depends_on:
-      - postgres
-      - redis
-      - kafka
-    deploy:
-      replicas: 1
-      restart_policy:
-        condition: on-failure
-
-  analytics-service:
-    build:
-      context: .
-      dockerfile: services/analytics/Dockerfile
-    ports:
-      - "8015:8015"
-    environment:
-      DATABASE_URL: postgresql://lms_user:lms_password@postgres:5432/lms_db
-      REDIS_URL: redis://redis:6379
-      KAFKA_URL: kafka:9092
-    depends_on:
-      - postgres
-      - redis
-      - kafka
-    deploy:
-      replicas: 1
-      restart_policy:
-        condition: on-failure
-
-  bulk-service:
-    build:
-      context: .
-      dockerfile: services/bulk/Dockerfile
-    ports:
-      - "8016:8016"
-    environment:
-      DATABASE_URL: postgresql://lms_user:lms_password@postgres:5432/lms_db
-      REDIS_URL: redis://redis:6379
-    depends_on:
-      - postgres
-      - redis
-    deploy:
-      replicas: 1
-      restart_policy:
-        condition: on-failure
-
-  export-service:
-    build:
-      context: .
-      dockerfile: services/exports/Dockerfile
-    ports:
-      - "8017:8017"
-    environment:
-      DATABASE_URL: postgresql://lms_user:lms_password@postgres:5432/lms_db
-      REDIS_URL: redis://redis:6379
-    depends_on:
-      - postgres
-      - redis
-    deploy:
-      replicas: 1
-      restart_policy:
-        condition: on-failure
 
   notification-service:
     build:
@@ -277,31 +256,15 @@ services:
       restart_policy:
         condition: on-failure
 
-  file-service:
-    build:
-      context: .
-      dockerfile: services/files/Dockerfile
-    ports:
-      - "8019:8019"
-    environment:
-      DATABASE_URL: postgresql://lms_user:lms_password@postgres:5432/lms_db
-      REDIS_URL: redis://redis:6379
-    volumes:
-      - ./uploads:/app/uploads
-    depends_on:
-      - postgres
-      - redis
-    deploy:
-      replicas: 1
-      restart_policy:
-        condition: on-failure
 
-  questionbank-service:
+
+
+  copo-service:
     build:
       context: .
-      dockerfile: services/questionbank/Dockerfile
+      dockerfile: services/copo/Dockerfile
     ports:
-      - "8020:8020"
+      - "8026:8026"
     environment:
       DATABASE_URL: postgresql://lms_user:lms_password@postgres:5432/lms_db
       REDIS_URL: redis://redis:6379
@@ -313,64 +276,6 @@ services:
       restart_policy:
         condition: on-failure
 
-  monitoring-service:
-    build:
-      context: .
-      dockerfile: services/monitoring/Dockerfile
-    ports:
-      - "8021:8021"
-    environment:
-      DATABASE_URL: postgresql://lms_user:lms_password@postgres:5432/lms_db
-      REDIS_URL: redis://redis:6379
-    volumes:
-      - ./backups:/app/backups
-    depends_on:
-      - postgres
-      - redis
-    deploy:
-      replicas: 1
-      restart_policy:
-        condition: on-failure
-
-  # Attendance Service
-  attendance-service:
-    build:
-      context: .
-      dockerfile: services/attendance/Dockerfile
-    ports:
-      - "8008:8008"
-    environment:
-      DATABASE_URL: postgresql://lms_user:lms_password@postgres:5432/lms_db
-      REDIS_URL: redis://redis:6379
-      KAFKA_URL: kafka:9092
-      SERVICE_PORT: 8008
-    depends_on:
-      - postgres
-      - redis
-    deploy:
-      replicas: 1
-      restart_policy:
-        condition: on-failure
-
-  # Promotion Service
-  promotion-service:
-    build:
-      context: .
-      dockerfile: services/promotion/Dockerfile
-    ports:
-      - "8009:8009"
-    environment:
-      DATABASE_URL: postgresql://lms_user:lms_password@postgres:5432/lms_db
-      REDIS_URL: redis://redis:6379
-      KAFKA_URL: kafka:9092
-      SERVICE_PORT: 8009
-    depends_on:
-      - postgres
-      - redis
-    deploy:
-      replicas: 1
-      restart_policy:
-        condition: on-failure
 
   # Frontend
   frontend:

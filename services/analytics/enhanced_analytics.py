@@ -261,7 +261,7 @@ async def get_dashboard_stats(
             "type": "exam_created",
             "description": f"New exam '{exam.title}' created",
             "timestamp": exam.created_at.isoformat(),
-            "user_id": exam.created_at  # Placeholder
+            "user_id": exam.created_by if hasattr(exam, 'created_by') else None
         })
     
     return AnalyticsDashboardStats(
@@ -516,8 +516,17 @@ async def get_student_performance(
         # Calculate GPA
         gpa = (overall_percentage / 100) * 4.0 if overall_percentage > 0 else 0.0
         
-        # Get attendance percentage (simplified)
-        attendance_percentage = 85.0  # Placeholder
+        # Get attendance percentage from attendance records
+        total_attendance = db.query(Attendance).filter(
+            Attendance.student_id == student.id,
+            Attendance.status == "present"
+        ).count()
+        
+        total_days = db.query(Attendance).filter(
+            Attendance.student_id == student.id
+        ).count()
+        
+        attendance_percentage = (total_attendance / total_days * 100) if total_days > 0 else 0.0
         
         # Get CO/PO attainment for this student
         student_cos = db.query(CO).join(Subject).filter(Subject.class_id == class_id).all()

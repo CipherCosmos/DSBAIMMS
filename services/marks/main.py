@@ -1,19 +1,16 @@
-from fastapi import FastAPI, Depends, HTTPException, Query, UploadFile, File, Form
+from fastapi import FastAPI, Depends, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session, joinedload
-from sqlalchemy import and_, func
-from typing import List, Optional, Dict
+from sqlalchemy import func, and_, or_
+from typing import List, Optional, Dict, Any
+from pydantic import BaseModel
+from datetime import datetime, date
 import json
-import pandas as pd
-from io import BytesIO
-from datetime import datetime
-import kafka
 
 from shared.database import get_db
-from shared.models import Mark, Question, User, Exam, ExamSection, Subject, AuditLog
+from shared.models import Mark, User, Exam, Question, Subject, Class, AuditLog, ExamSection
 from shared.auth import RoleChecker
-from pydantic import BaseModel
+from shared.permissions import PermissionChecker, Permission
 
 app = FastAPI(title="Marks Service", version="1.0.0")
 
@@ -25,565 +22,512 @@ app.add_middleware(
     allow_headers=["*"]
 )
 
-# Kafka producer for real-time analytics
-try:
-    producer = kafka.KafkaProducer(
-        bootstrap_servers=['kafka:9092'],
-        value_serializer=lambda v: json.dumps(v).encode('utf-8')
-    )
-except:
-    producer = None
+# Enhanced schemas
+class MarkEntry(BaseModel):
+    question_id: int
+    marks_obtained: float
+    feedback: Optional[str] = None
 
-# Mark schemas
-from shared.schemas import MarkCreate, MarkUpdate, MarkResponse, BulkMarkEntry
+class StudentMarks(BaseModel):
+    student_id: int
+    marks: List[MarkEntry]
+    total_marks: float
+    attendance_marks: Optional[float] = None
+    bonus_marks: Optional[float] = None
+    remarks: Optional[str] = None
+
+class BulkMarksEntry(BaseModel):
+    exam_id: int
+    student_marks: List[StudentMarks]
+
+class MarkResponse(BaseModel):
+    id: int
+    student_id: int
+    student_name: str
+    exam_id: int
+    exam_name: str
+    question_id: int
+    question_text: str
+    max_marks: float
+    marks_obtained: float
+    feedback: Optional[str]
+    graded_by: int
+    graded_by_name: str
+    graded_at: str
+    subject_id: int
+    subject_name: str
+    class_id: int
+    class_name: str
+
+class ExamMarksSummary(BaseModel):
+    exam_id: int
+    exam_name: str
+    subject_name: str
+    class_name: str
+    total_students: int
+    graded_students: int
+    pending_students: int
+    average_marks: float
+    highest_marks: float
+    lowest_marks: float
+    passing_count: int
+    failing_count: int
+    passing_percentage: float
+
+class StudentPerformance(BaseModel):
+    student_id: int
+    student_name: str
+    total_exams: int
+    attempted_exams: int
+    average_marks: float
+    total_marks: float
+    grade: str
+    rank: int
+    improvement_trend: str  # improving, declining, stable
 
 def log_audit(db: Session, user_id: int, action: str, table_name: str, record_id: int = None,
-              old_values: dict = None, new_values: dict = None):
+              old_values: dict = None, new_values: dict = None, request: Request = None):
+    """Log audit trail"""
     audit_log = AuditLog(
         user_id=user_id,
         action=action,
         table_name=table_name,
         record_id=record_id,
         old_values=json.dumps(old_values) if old_values else None,
-        new_values=json.dumps(new_values) if new_values else None
+        new_values=json.dumps(new_values) if new_values else None,
+        ip_address=request.client.host if request else None,
+        user_agent=request.headers.get("user-agent") if request else None,
+        created_at=datetime.utcnow()
     )
     db.add(audit_log)
     db.commit()
 
-def publish_marks_event(event_type: str, data: dict):
-    if producer:
-        try:
-            producer.send('marks-events', {
-                'event_type': event_type,
-                'timestamp': datetime.utcnow().isoformat(),
-                'data': data
-            })
-        except Exception as e:
-            print(f"Failed to publish event: {e}")
+def format_mark_response(mark: Mark) -> Dict[str, Any]:
+    """Format mark response"""
+    return {
+        "id": mark.id,
+        "student_id": mark.student_id,
+        "student_name": mark.student.full_name if mark.student else None,
+        "exam_id": mark.exam_id,
+        "exam_name": mark.exam.exam_name if mark.exam else None,
+        "question_id": mark.question_id,
+        "question_text": mark.question.question_text if mark.question else None,
+        "max_marks": float(mark.max_marks),
+        "marks_obtained": float(mark.marks_obtained),
+        "feedback": mark.feedback,
+        "graded_by": mark.graded_by,
+        "graded_by_name": mark.grader.full_name if mark.grader else None,
+        "graded_at": mark.graded_at.isoformat() if mark.graded_at else None,
+        "subject_id": mark.exam.subject_id if mark.exam else None,
+        "subject_name": mark.exam.subject.name if mark.exam and mark.exam.subject else None,
+        "class_id": mark.exam.class_id if mark.exam else None,
+        "class_name": mark.exam.class_.name if mark.exam and mark.exam.class_ else None
+    }
 
-async def auto_calculate_optional_marks(db: Session, exam_id: int, student_id: int):
-    """Auto-calculate marks for optional questions using best-attempt logic"""
-    try:
-        # Get all sections with optional questions for this exam
-        sections = db.query(ExamSection).filter(ExamSection.exam_id == exam_id).all()
-        
-        for section in sections:
-            # Get optional questions for this section
-            optional_questions = db.query(Question).filter(
-                Question.section_id == section.id,
-                Question.is_optional == True
-            ).all()
-            
-            if not optional_questions:
-                continue
-            
-            # Get student's marks for all optional questions in this section
-            student_marks = db.query(Mark).filter(
-                Mark.student_id == student_id,
-                Mark.question_id.in_([q.id for q in optional_questions])
-            ).all()
-            
-            if not student_marks:
-                continue
-            
-            # Group questions by marks value for auto-calculation
-            questions_by_marks = {}
-            for question in optional_questions:
-                marks_value = question.marks
-                if marks_value not in questions_by_marks:
-                    questions_by_marks[marks_value] = []
-                questions_by_marks[marks_value].append(question)
-            
-            # Calculate best attempts for each marks group
-            for marks_value, questions in questions_by_marks.items():
-                # Get marks for this group
-                group_marks = [m for m in student_marks if m.question_id in [q.id for q in questions]]
-                
-                if not group_marks:
-                    continue
-                
-                # Sort by marks obtained (descending) to get best attempts
-                group_marks.sort(key=lambda x: x.marks_obtained, reverse=True)
-                
-                # Determine how many questions to count based on section rules
-                questions_to_count = section.questions_to_attempt or len(questions)
-                
-                # Take the best attempts
-                best_attempts = group_marks[:questions_to_count]
-                
-                # Mark the best attempts as counted
-                for i, mark in enumerate(group_marks):
-                    if i < questions_to_count:
-                        # This is a best attempt - mark it as counted
-                        mark.is_counted_for_total = True
-                    else:
-                        # This is not counted - mark it as not counted
-                        mark.is_counted_for_total = False
-                
-                # Calculate total marks for this group
-                total_marks = sum(mark.marks_obtained for mark in best_attempts)
-                
-                # Log the calculation
-                print(f"Auto-calculated optional marks for student {student_id} in exam {exam_id}: "
-                      f"Section {section.name}, {len(best_attempts)}/{len(questions)} questions counted, "
-                      f"Total: {total_marks}/{questions_to_count * marks_value} marks")
-        
-        db.commit()
-        
-    except Exception as e:
-        print(f"Error in auto_calculate_optional_marks: {e}")
-        db.rollback()
+def calculate_grade(percentage: float) -> str:
+    """Calculate grade based on percentage"""
+    if percentage >= 90:
+        return "A+"
+    elif percentage >= 80:
+        return "A"
+    elif percentage >= 70:
+        return "B+"
+    elif percentage >= 60:
+        return "B"
+    elif percentage >= 50:
+        return "C+"
+    elif percentage >= 40:
+        return "C"
+    elif percentage >= 33:
+        return "D"
+    else:
+        return "F"
 
-# Root endpoint
-@app.get("/")
+@app.get("/", response_model=Dict[str, str])
 async def root():
-    return {"message": "Marks Service is running", "status": "healthy"}
+    """Service health check"""
+    return {"message": "Marks Service", "version": "1.0.0", "status": "healthy"}
 
-# Mark endpoints
-@app.get("/marks", response_model=List[MarkResponse])
+@app.get("/api/marks", response_model=List[MarkResponse])
 async def get_marks(
-    student_id: Optional[int] = None,
-    exam_id: Optional[int] = None,
-    question_id: Optional[int] = None,
+    exam_id: Optional[int] = Query(None),
+    student_id: Optional[int] = Query(None),
+    subject_id: Optional[int] = Query(None),
+    class_id: Optional[int] = Query(None),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
     db: Session = Depends(get_db),
     current_user_id: int = Depends(RoleChecker(["admin", "hod", "teacher", "student"]))
 ):
-    """Get all marks with optional filtering"""
+    """Get marks with role-based filtering"""
     current_user = db.query(User).filter(User.id == current_user_id).first()
+    if not current_user:
+        raise HTTPException(status_code=404, detail="Current user not found")
     
     query = db.query(Mark).options(
+        joinedload(Mark.student),
+        joinedload(Mark.exam).joinedload(Exam.subject),
+        joinedload(Mark.exam).joinedload(Exam.class_),
         joinedload(Mark.question),
-        joinedload(Mark.student)
+        joinedload(Mark.grader)
     )
     
-    # Apply role-based filters
+    # Apply role-based filtering
     if current_user.role == "student":
+        # Students can only see their own marks
         query = query.filter(Mark.student_id == current_user_id)
     elif current_user.role == "teacher":
-        # Teachers can only see marks for their subjects
-        teacher_subjects = db.query(Subject.id).filter(Subject.teacher_id == current_user_id).subquery()
-        query = query.join(Question).join(ExamSection).join(Exam).filter(Exam.subject_id.in_(teacher_subjects))
+        # Teachers can see marks for subjects they teach
+        teacher_subjects = db.query(Subject.id).filter(Subject.teacher_ids.contains([current_user.id]))
+        query = query.join(Exam).filter(Exam.subject_id.in_(teacher_subjects))
     elif current_user.role == "hod":
-        # HODs can see marks for their department
-        query = query.join(Question).join(ExamSection).join(Exam).join(Subject).filter(Subject.department_id == current_user.department_id)
+        # HODs can see marks from their department
+        query = query.join(Exam).join(Subject).filter(Subject.department_id == current_user.department_id)
     
-    # Apply additional filters
+    # Apply filters
+    if exam_id:
+        query = query.filter(Mark.exam_id == exam_id)
+    
     if student_id:
         query = query.filter(Mark.student_id == student_id)
-    if exam_id:
-        query = query.join(Question).join(ExamSection).filter(ExamSection.exam_id == exam_id)
-    if question_id:
-        query = query.filter(Mark.question_id == question_id)
+    
+    if subject_id:
+        query = query.join(Exam).filter(Exam.subject_id == subject_id)
+    
+    if class_id:
+        query = query.join(Exam).filter(Exam.class_id == class_id)
     
     marks = query.offset(skip).limit(limit).all()
-    return marks
+    
+    result = []
+    for mark in marks:
+        result.append(format_mark_response(mark))
+    
+    return result
 
-@app.get("/marks/{mark_id}", response_model=MarkResponse)
-async def get_mark(
-    mark_id: int,
-    db: Session = Depends(get_db),
-    current_user_id: int = Depends(RoleChecker(["admin", "hod", "teacher", "student"]))
-):
-    """Get a specific mark by ID"""
-    current_user = db.query(User).filter(User.id == current_user_id).first()
-    
-    mark = db.query(Mark).options(
-        joinedload(Mark.question),
-        joinedload(Mark.student)
-    ).filter(Mark.id == mark_id).first()
-    
-    if not mark:
-        raise HTTPException(status_code=404, detail="Mark not found")
-    
-    # Apply role-based access control
-    if current_user.role == "student":
-        if mark.student_id != current_user_id:
-            raise HTTPException(status_code=403, detail="Access denied")
-    elif current_user.role == "teacher":
-        # Check if teacher teaches the subject
-        exam = db.query(Exam).join(ExamSection).join(Question).filter(Question.id == mark.question_id).first()
-        subject = db.query(Subject).filter(Subject.id == exam.subject_id).first()
-        if subject.teacher_id != current_user_id:
-            raise HTTPException(status_code=403, detail="Access denied")
-    elif current_user.role == "hod":
-        # Check if mark is from HOD's department
-        exam = db.query(Exam).join(ExamSection).join(Question).filter(Question.id == mark.question_id).first()
-        subject = db.query(Subject).filter(Subject.id == exam.subject_id).first()
-        if subject.department_id != current_user.department_id:
-            raise HTTPException(status_code=403, detail="Access denied")
-    
-    return mark
-
-@app.post("/marks", response_model=MarkResponse)
-async def create_mark(
-    mark: MarkCreate,
+@app.post("/api/marks/bulk")
+async def bulk_marks_entry(
+    bulk_data: BulkMarksEntry,
+    request: Request,
     db: Session = Depends(get_db),
     current_user_id: int = Depends(RoleChecker(["admin", "hod", "teacher"]))
 ):
-    """Create a new mark entry"""
+    """Bulk entry of marks for an exam"""
     current_user = db.query(User).filter(User.id == current_user_id).first()
+    if not current_user:
+        raise HTTPException(status_code=404, detail="Current user not found")
     
-    # Check if question exists and user has permission
-    question = db.query(Question).filter(Question.id == mark.question_id).first()
-    if not question:
-        raise HTTPException(status_code=404, detail="Question not found")
+    # Validate exam exists
+    exam = db.query(Exam).filter(Exam.id == bulk_data.exam_id).first()
+    if not exam:
+        raise HTTPException(status_code=404, detail="Exam not found")
     
-    # Check permissions through exam
-    exam = db.query(Exam).join(ExamSection).filter(ExamSection.id == question.section_id).first()
-    subject = db.query(Subject).filter(Subject.id == exam.subject_id).first()
+    # Check permissions
+    if current_user.role == "teacher" and current_user.id not in (exam.subject.teacher_ids or []):
+        raise HTTPException(status_code=403, detail="You can only enter marks for exams you manage")
+    elif current_user.role == "hod" and exam.subject.department_id != current_user.department_id:
+        raise HTTPException(status_code=403, detail="You can only enter marks for exams in your department")
     
-    if current_user.role == "teacher":
-        if subject.teacher_id != current_user_id:
-            raise HTTPException(status_code=403, detail="Access denied")
-    elif current_user.role == "hod":
-        if subject.department_id != current_user.department_id:
-            raise HTTPException(status_code=403, detail="Access denied")
+    # Validate all questions exist and belong to the exam
+    all_question_ids = []
+    for student_mark in bulk_data.student_marks:
+        for mark_entry in student_mark.marks:
+            all_question_ids.append(mark_entry.question_id)
     
-    # Check if student exists
-    student = db.query(User).filter(User.id == mark.student_id).first()
-    if not student:
-        raise HTTPException(status_code=404, detail="Student not found")
+    exam_questions = db.query(Question).join(ExamSection).filter(
+        ExamSection.exam_id == bulk_data.exam_id,
+        Question.id.in_(all_question_ids)
+    ).all()
     
-    # Check if mark already exists
-    existing_mark = db.query(Mark).filter(
-        Mark.student_id == mark.student_id,
-        Mark.question_id == mark.question_id
-    ).first()
+    exam_question_ids = [q.id for q in exam_questions]
     
-    if existing_mark:
-        raise HTTPException(status_code=400, detail="Mark already exists for this student and question")
+    # Validate all students exist and belong to the exam class
+    all_student_ids = [sm.student_id for sm in bulk_data.student_marks]
+    class_students = db.query(User).filter(
+        User.id.in_(all_student_ids),
+        User.class_id == exam.class_id,
+        User.role == "student",
+        User.is_active == True
+    ).all()
     
-    # Create mark
-    db_mark = Mark(
-        student_id=mark.student_id,
-        question_id=mark.question_id,
-        marks_obtained=mark.marks_obtained,
-        max_marks=mark.max_marks,
-        graded_by=current_user_id
-    )
-    
-    db.add(db_mark)
-    db.commit()
-    db.refresh(db_mark)
-    
-    # Auto-calculate optional questions marks if this is an optional question
-    question = db.query(Question).filter(Question.id == mark.question_id).first()
-    if question and question.is_optional:
-        await auto_calculate_optional_marks(db, mark.exam_id, mark.student_id)
-    
-    # Log audit
-    log_audit(db, current_user_id, "CREATE", "Mark", db_mark.id, None, {
-        "student_id": mark.student_id,
-        "question_id": mark.question_id,
-        "marks_obtained": mark.marks_obtained
-    })
-    
-    # Publish event
-    publish_marks_event("mark_created", {
-        "mark_id": db_mark.id,
-        "student_id": mark.student_id,
-        "question_id": mark.question_id,
-        "marks_obtained": mark.marks_obtained
-    })
-    
-    return db_mark
-
-@app.put("/marks/{mark_id}", response_model=MarkResponse)
-async def update_mark(
-    mark_id: int,
-    mark: MarkUpdate,
-    db: Session = Depends(get_db),
-    current_user_id: int = Depends(RoleChecker(["admin", "hod", "teacher"]))
-):
-    """Update an existing mark"""
-    current_user = db.query(User).filter(User.id == current_user_id).first()
-    
-    db_mark = db.query(Mark).filter(Mark.id == mark_id).first()
-    if not db_mark:
-        raise HTTPException(status_code=404, detail="Mark not found")
-    
-    # Check permissions through exam
-    exam = db.query(Exam).join(ExamSection).join(Question).filter(Question.id == db_mark.question_id).first()
-    subject = db.query(Subject).filter(Subject.id == exam.subject_id).first()
-    
-    if current_user.role == "teacher":
-        if subject.teacher_id != current_user_id:
-            raise HTTPException(status_code=403, detail="Access denied")
-    elif current_user.role == "hod":
-        if subject.department_id != current_user.department_id:
-            raise HTTPException(status_code=403, detail="Access denied")
-    
-    # Store old values for audit
-    old_values = {
-        "marks_obtained": db_mark.marks_obtained,
-        "max_marks": db_mark.max_marks
-    }
-    
-    # Update mark
-    update_data = mark.dict(exclude_unset=True)
-    for field, value in update_data.items():
-        setattr(db_mark, field, value)
-    
-    db.commit()
-    db.refresh(db_mark)
-    
-    # Log audit
-    log_audit(db, current_user_id, "UPDATE", "Mark", mark_id, old_values, update_data)
-    
-    # Publish event
-    publish_marks_event("mark_updated", {
-        "mark_id": mark_id,
-        "student_id": db_mark.student_id,
-        "question_id": db_mark.question_id,
-        "marks_obtained": db_mark.marks_obtained
-    })
-    
-    return db_mark
-
-@app.delete("/marks/{mark_id}")
-async def delete_mark(
-    mark_id: int,
-    db: Session = Depends(get_db),
-    current_user_id: int = Depends(RoleChecker(["admin", "hod", "teacher"]))
-):
-    """Delete a mark"""
-    current_user = db.query(User).filter(User.id == current_user_id).first()
-    
-    db_mark = db.query(Mark).filter(Mark.id == mark_id).first()
-    if not db_mark:
-        raise HTTPException(status_code=404, detail="Mark not found")
-    
-    # Check permissions through exam
-    exam = db.query(Exam).join(ExamSection).join(Question).filter(Question.id == db_mark.question_id).first()
-    subject = db.query(Subject).filter(Subject.id == exam.subject_id).first()
-    
-    if current_user.role == "teacher":
-        if subject.teacher_id != current_user_id:
-            raise HTTPException(status_code=403, detail="Access denied")
-    elif current_user.role == "hod":
-        if subject.department_id != current_user.department_id:
-            raise HTTPException(status_code=403, detail="Access denied")
-    
-    # Store old values for audit
-    old_values = {
-        "student_id": db_mark.student_id,
-        "question_id": db_mark.question_id,
-        "marks_obtained": db_mark.marks_obtained
-    }
-    
-    db.delete(db_mark)
-    db.commit()
-    
-    # Log audit
-    log_audit(db, current_user_id, "DELETE", "Mark", mark_id, old_values, None)
-    
-    # Publish event
-    publish_marks_event("mark_deleted", {
-        "mark_id": mark_id,
-        "student_id": db_mark.student_id,
-        "question_id": db_mark.question_id
-    })
-    
-    return {"message": "Mark deleted successfully"}
-
-# Bulk operations
-@app.post("/marks/bulk", response_model=Dict)
-async def bulk_create_marks(
-    marks: List[BulkMarkEntry],
-    db: Session = Depends(get_db),
-    current_user_id: int = Depends(RoleChecker(["admin", "hod", "teacher"]))
-):
-    """Create multiple marks in bulk"""
-    current_user = db.query(User).filter(User.id == current_user_id).first()
+    class_student_ids = [s.id for s in class_students]
     
     created_marks = []
-    errors = []
     
-    for i, mark_data in enumerate(marks):
-        try:
-            # Check if question exists and user has permission
-            question = db.query(Question).filter(Question.id == mark_data.question_id).first()
-            if not question:
-                errors.append(f"Row {i+1}: Question not found")
-                continue
-            
-            # Check permissions through exam
-            exam = db.query(Exam).join(ExamSection).filter(ExamSection.id == question.section_id).first()
-            subject = db.query(Subject).filter(Subject.id == exam.subject_id).first()
-            
-            if current_user.role == "teacher":
-                if subject.teacher_id != current_user_id:
-                    errors.append(f"Row {i+1}: Access denied")
-                    continue
-            elif current_user.role == "hod":
-                if subject.department_id != current_user.department_id:
-                    errors.append(f"Row {i+1}: Access denied")
-                    continue
-            
-            # Check if student exists
-            student = db.query(User).filter(User.id == mark_data.student_id).first()
-            if not student:
-                errors.append(f"Row {i+1}: Student not found")
-                continue
+    for student_mark in bulk_data.student_marks:
+        if student_mark.student_id not in class_student_ids:
+            continue  # Skip invalid students
+        
+        for mark_entry in student_mark.marks:
+            if mark_entry.question_id not in exam_question_ids:
+                continue  # Skip invalid questions
             
             # Check if mark already exists
             existing_mark = db.query(Mark).filter(
-                Mark.student_id == mark_data.student_id,
-                Mark.question_id == mark_data.question_id
+                Mark.student_id == student_mark.student_id,
+                Mark.exam_id == bulk_data.exam_id,
+                Mark.question_id == mark_entry.question_id
             ).first()
             
             if existing_mark:
-                errors.append(f"Row {i+1}: Mark already exists")
-                continue
-            
-            # Create mark
-            db_mark = Mark(
-                student_id=mark_data.student_id,
-                question_id=mark_data.question_id,
-                marks_obtained=mark_data.marks_obtained,
-                max_marks=mark_data.max_marks,
-                graded_by=current_user_id
-            )
-            
-            db.add(db_mark)
-            created_marks.append(db_mark)
-            
-        except Exception as e:
-            errors.append(f"Row {i+1}: {str(e)}")
+                # Update existing mark
+                existing_mark.marks_obtained = mark_entry.marks_obtained
+                existing_mark.feedback = mark_entry.feedback
+                existing_mark.graded_by = current_user_id
+                existing_mark.graded_at = datetime.utcnow()
+                existing_mark.updated_at = datetime.utcnow()
+                created_marks.append(existing_mark)
+            else:
+                # Create new mark
+                question = next((q for q in exam_questions if q.id == mark_entry.question_id), None)
+                if not question:
+                    continue
+                
+                mark = Mark(
+                    student_id=student_mark.student_id,
+                    exam_id=bulk_data.exam_id,
+                    question_id=mark_entry.question_id,
+                    max_marks=question.marks,
+                    marks_obtained=mark_entry.marks_obtained,
+                    feedback=mark_entry.feedback,
+                    graded_by=current_user_id,
+                    graded_at=datetime.utcnow(),
+                    created_at=datetime.utcnow(),
+                    updated_at=datetime.utcnow()
+                )
+                
+                db.add(mark)
+                created_marks.append(mark)
     
-    if created_marks:
-        db.commit()
-        
-        # Log audit
-        log_audit(db, current_user_id, "BULK_CREATE", "Mark", None, None, {
-            "count": len(created_marks),
-            "total_attempted": len(marks)
-        })
-        
-        # Publish event
-        publish_marks_event("bulk_marks_created", {
-            "count": len(created_marks),
-            "graded_by": current_user_id
-        })
+    db.commit()
     
-    return {
-        "created_count": len(created_marks),
-        "error_count": len(errors),
-        "errors": errors
-    }
+    # Log audit
+    log_audit(db, current_user_id, "BULK_MARKS_ENTRY", "marks", None,
+              new_values={"exam_id": bulk_data.exam_id, "marks_count": len(created_marks)}, request=request)
+    
+    return {"message": f"Successfully entered {len(created_marks)} marks", "marks_count": len(created_marks)}
 
-@app.get("/marks/export")
-async def export_marks(
-    exam_id: Optional[int] = None,
-    subject_id: Optional[int] = None,
-    class_id: Optional[int] = None,
+@app.get("/api/marks/exam/{exam_id}/summary", response_model=ExamMarksSummary)
+async def get_exam_marks_summary(
+    exam_id: int,
     db: Session = Depends(get_db),
     current_user_id: int = Depends(RoleChecker(["admin", "hod", "teacher"]))
 ):
-    """Export marks to CSV"""
+    """Get exam marks summary"""
     current_user = db.query(User).filter(User.id == current_user_id).first()
+    if not current_user:
+        raise HTTPException(status_code=404, detail="Current user not found")
     
-    query = db.query(Mark).options(
-        joinedload(Mark.question),
-        joinedload(Mark.student)
+    exam = db.query(Exam).filter(Exam.id == exam_id).first()
+    if not exam:
+        raise HTTPException(status_code=404, detail="Exam not found")
+    
+    # Check permissions
+    if current_user.role == "teacher" and current_user.id not in (exam.subject.teacher_ids or []):
+        raise HTTPException(status_code=403, detail="Cannot access marks for exams you don't manage")
+    elif current_user.role == "hod" and exam.subject.department_id != current_user.department_id:
+        raise HTTPException(status_code=403, detail="Cannot access marks from other departments")
+    
+    # Get class students
+    class_students = db.query(User).filter(
+        User.class_id == exam.class_id,
+        User.role == "student",
+        User.is_active == True
+    ).all()
+    
+    total_students = len(class_students)
+    
+    # Get marks for this exam
+    exam_marks = db.query(Mark).filter(Mark.exam_id == exam_id).all()
+    
+    # Group marks by student
+    student_marks = {}
+    for mark in exam_marks:
+        if mark.student_id not in student_marks:
+            student_marks[mark.student_id] = []
+        student_marks[mark.student_id].append(mark)
+    
+    graded_students = len(student_marks)
+    pending_students = total_students - graded_students
+    
+    # Calculate statistics
+    total_marks_list = []
+    passing_count = 0
+    
+    for student_id, marks in student_marks.items():
+        total_obtained = sum(float(mark.marks_obtained) for mark in marks)
+        total_marks_list.append(total_obtained)
+        
+        if total_obtained >= exam.passing_marks:
+            passing_count += 1
+    
+    average_marks = sum(total_marks_list) / len(total_marks_list) if total_marks_list else 0
+    highest_marks = max(total_marks_list) if total_marks_list else 0
+    lowest_marks = min(total_marks_list) if total_marks_list else 0
+    failing_count = graded_students - passing_count
+    passing_percentage = (passing_count / graded_students * 100) if graded_students > 0 else 0
+    
+    return ExamMarksSummary(
+        exam_id=exam.id,
+        exam_name=exam.exam_name,
+        subject_name=exam.subject.name if exam.subject else None,
+        class_name=exam.class_.name if exam.class_ else None,
+        total_students=total_students,
+        graded_students=graded_students,
+        pending_students=pending_students,
+        average_marks=average_marks,
+        highest_marks=highest_marks,
+        lowest_marks=lowest_marks,
+        passing_count=passing_count,
+        failing_count=failing_count,
+        passing_percentage=passing_percentage
     )
+
+@app.get("/api/marks/student/{student_id}/performance", response_model=StudentPerformance)
+async def get_student_performance(
+    student_id: int,
+    subject_id: Optional[int] = Query(None),
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(RoleChecker(["admin", "hod", "teacher", "student"]))
+):
+    """Get student performance analytics"""
+    current_user = db.query(User).filter(User.id == current_user_id).first()
+    if not current_user:
+        raise HTTPException(status_code=404, detail="Current user not found")
     
-    # Apply role-based filters
-    if current_user.role == "teacher":
-        teacher_subjects = db.query(Subject.id).filter(Subject.teacher_id == current_user_id).subquery()
-        query = query.join(Question).join(ExamSection).join(Exam).filter(Exam.subject_id.in_(teacher_subjects))
-    elif current_user.role == "hod":
-        query = query.join(Question).join(ExamSection).join(Exam).join(Subject).filter(Subject.department_id == current_user.department_id)
+    # Check permissions
+    if current_user.role == "student" and current_user_id != student_id:
+        raise HTTPException(status_code=403, detail="Students can only view their own performance")
     
-    # Apply additional filters
-    if exam_id:
-        query = query.join(Question).join(ExamSection).filter(ExamSection.exam_id == exam_id)
+    student = db.query(User).filter(User.id == student_id, User.role == "student").first()
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+    
+    # Get student's marks
+    query = db.query(Mark).filter(Mark.student_id == student_id)
+    
     if subject_id:
-        query = query.join(Question).join(ExamSection).join(Exam).filter(Exam.subject_id == subject_id)
-    if class_id:
-        query = query.join(Question).join(ExamSection).join(Exam).filter(Exam.class_id == class_id)
+        query = query.join(Exam).filter(Exam.subject_id == subject_id)
     
     marks = query.all()
     
-    # Create DataFrame
-    data = []
+    # Group marks by exam
+    exam_marks = {}
     for mark in marks:
-        data.append({
-            'Student ID': mark.student.student_id,
-            'Student Name': mark.student.full_name,
-            'Question ID': mark.question_id,
-            'Question Number': mark.question.question_number,
-            'Marks Obtained': mark.marks_obtained,
-            'Max Marks': mark.max_marks,
-            'Percentage': (mark.marks_obtained / mark.max_marks * 100) if mark.max_marks > 0 else 0,
-            'Graded By': mark.graded_by,
-            'Created At': mark.created_at.isoformat()
-        })
+        if mark.exam_id not in exam_marks:
+            exam_marks[mark.exam_id] = []
+        exam_marks[mark.exam_id].append(mark)
     
-    df = pd.DataFrame(data)
+    total_exams = len(exam_marks)
+    attempted_exams = len([exam_id for exam_id, marks_list in exam_marks.items() if marks_list])
     
-    # Create CSV
-    output = BytesIO()
-    df.to_csv(output, index=False)
-    output.seek(0)
+    # Calculate total and average marks
+    total_marks = 0
+    total_max_marks = 0
     
-    return StreamingResponse(
-        BytesIO(output.getvalue()),
-        media_type="text/csv",
-        headers={"Content-Disposition": "attachment; filename=marks_export.csv"}
+    for exam_id, marks_list in exam_marks.items():
+        exam_total = sum(float(mark.marks_obtained) for mark in marks_list)
+        exam_max = sum(float(mark.max_marks) for mark in marks_list)
+        total_marks += exam_total
+        total_max_marks += exam_max
+    
+    average_marks = (total_marks / total_max_marks * 100) if total_max_marks > 0 else 0
+    grade = calculate_grade(average_marks)
+    
+    # Calculate rank (simplified - would need more complex logic for accurate ranking)
+    rank = 1  # This would need to be calculated against all students
+    
+    # Determine improvement trend (simplified)
+    improvement_trend = "stable"  # This would need historical data analysis
+    
+    return StudentPerformance(
+        student_id=student.id,
+        student_name=student.full_name,
+        total_exams=total_exams,
+        attempted_exams=attempted_exams,
+        average_marks=average_marks,
+        total_marks=total_marks,
+        grade=grade,
+        rank=rank,
+        improvement_trend=improvement_trend
     )
 
-@app.get("/marks/statistics")
-async def get_marks_statistics(
-    exam_id: Optional[int] = None,
-    subject_id: Optional[int] = None,
-    class_id: Optional[int] = None,
+@app.get("/api/marks/analytics", response_model=Dict[str, Any])
+async def get_marks_analytics(
+    subject_id: Optional[int] = Query(None),
+    class_id: Optional[int] = Query(None),
+    exam_type: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     current_user_id: int = Depends(RoleChecker(["admin", "hod", "teacher"]))
 ):
-    """Get marks statistics"""
+    """Get comprehensive marks analytics"""
     current_user = db.query(User).filter(User.id == current_user_id).first()
+    if not current_user:
+        raise HTTPException(status_code=404, detail="Current user not found")
     
-    query = db.query(Mark)
+    # Build query based on user role and filters
+    query = db.query(Mark).join(Exam).join(Subject)
     
-    # Apply role-based filters
     if current_user.role == "teacher":
-        teacher_subjects = db.query(Subject.id).filter(Subject.teacher_id == current_user_id).subquery()
-        query = query.join(Question).join(ExamSection).join(Exam).filter(Exam.subject_id.in_(teacher_subjects))
+        teacher_subjects = db.query(Subject.id).filter(Subject.teacher_ids.contains([current_user.id]))
+        query = query.filter(Subject.id.in_(teacher_subjects))
     elif current_user.role == "hod":
-        query = query.join(Question).join(ExamSection).join(Exam).join(Subject).filter(Subject.department_id == current_user.department_id)
+        query = query.filter(Subject.department_id == current_user.department_id)
     
-    # Apply additional filters
-    if exam_id:
-        query = query.join(Question).join(ExamSection).filter(ExamSection.exam_id == exam_id)
     if subject_id:
-        query = query.join(Question).join(ExamSection).join(Exam).filter(Exam.subject_id == subject_id)
+        query = query.filter(Exam.subject_id == subject_id)
+    
     if class_id:
-        query = query.join(Question).join(ExamSection).join(Exam).filter(Exam.class_id == class_id)
+        query = query.filter(Exam.class_id == class_id)
     
-    # Calculate statistics
-    total_marks = query.count()
-    avg_marks = query.with_entities(func.avg(Mark.marks_obtained)).scalar() or 0
-    max_marks = query.with_entities(func.max(Mark.marks_obtained)).scalar() or 0
-    min_marks = query.with_entities(func.min(Mark.marks_obtained)).scalar() or 0
+    if exam_type:
+        query = query.filter(Exam.exam_type == exam_type)
     
-    # Pass rate (assuming 40% is passing)
-    passing_marks = query.filter(Mark.marks_obtained >= Mark.max_marks * 0.4).count()
-    pass_rate = (passing_marks / total_marks * 100) if total_marks > 0 else 0
+    marks = query.all()
+    
+    # Calculate analytics
+    if not marks:
+        return {
+            "total_marks": 0,
+            "average_marks": 0,
+            "grade_distribution": {},
+            "performance_trends": {},
+            "subject_wise_performance": {},
+            "difficulty_analysis": {}
+        }
+    
+    # Grade distribution
+    grade_distribution = {"A+": 0, "A": 0, "B+": 0, "B": 0, "C+": 0, "C": 0, "D": 0, "F": 0}
+    
+    # Group by student and calculate grades
+    student_grades = {}
+    for mark in marks:
+        if mark.student_id not in student_grades:
+            student_grades[mark.student_id] = {"total": 0, "max": 0}
+        
+        student_grades[mark.student_id]["total"] += float(mark.marks_obtained)
+        student_grades[mark.student_id]["max"] += float(mark.max_marks)
+    
+    for student_id, grade_data in student_grades.items():
+        percentage = (grade_data["total"] / grade_data["max"] * 100) if grade_data["max"] > 0 else 0
+        grade = calculate_grade(percentage)
+        grade_distribution[grade] += 1
+    
+    total_marks = len(marks)
+    average_marks = sum(float(mark.marks_obtained) for mark in marks) / total_marks if total_marks > 0 else 0
     
     return {
         "total_marks": total_marks,
-        "average_marks": round(avg_marks, 2),
-        "max_marks": max_marks,
-        "min_marks": min_marks,
-        "pass_rate": round(pass_rate, 2),
-        "passing_marks": passing_marks
+        "average_marks": average_marks,
+        "grade_distribution": grade_distribution,
+        "performance_trends": {},  # Would need historical data
+        "subject_wise_performance": {},  # Would need grouping by subject
+        "difficulty_analysis": {}  # Would need question difficulty data
     }
 
 @app.get("/health")
 async def health_check():
+    """Health check endpoint"""
     return {"status": "healthy", "service": "marks"}
 
 if __name__ == "__main__":

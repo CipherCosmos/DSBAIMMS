@@ -5,7 +5,7 @@ import { apiClient } from '@/lib/api'
 import { 
   BookOpen, Plus, Edit, Trash2, Save, X, Eye, 
   RefreshCw, Download, Upload, Filter, Search,
-  Users, GraduationCap, Calendar, Building
+  Users, GraduationCap, Calendar, Building, AlertCircle
 } from 'lucide-react'
 
 interface Class {
@@ -84,10 +84,10 @@ export default function ClassesPage() {
         apiClient.get('/api/users')
       ])
 
-    let classesData = classesResponse || []
-    const semestersData = semestersResponse || []
-    const departmentsData = departmentsResponse || []
-    const usersData = usersResponse || []
+    let classesData = classesResponse?.data || []
+    const semestersData = semestersResponse?.data || []
+    const departmentsData = departmentsResponse?.data || []
+    const usersData = usersResponse?.data || []
 
       // Filter by department if selected
       if (filterDepartment) {

@@ -78,9 +78,9 @@ export function EnhancedAdminDashboard() {
     try {
       setLoading(true)
       const [statsData, coPoData, studentData] = await Promise.allSettled([
-        apiClient.get('/api/analytics/dashboard-stats'),
-        apiClient.get('/api/analytics/co-attainment'),
-        apiClient.get('/api/analytics/student-performance')
+        apiClient.getDashboardStats(),
+        apiClient.getCOPOPerformance(),
+        apiClient.getStudentAnalytics()
       ])
 
       console.log('Promise.allSettled results:', {
@@ -89,26 +89,23 @@ export function EnhancedAdminDashboard() {
         studentData: studentData.status
       })
 
-      if (statsData.status === 'fulfilled') {
+      if (statsData.status === 'fulfilled' && statsData.value.success) {
         console.log('Stats API Response:', statsData.value)
-        console.log('Stats Data:', statsData.value.data)
-        setStats(statsData.value || null)
+        setStats(statsData.value.data)
       } else {
         console.error('Stats API Error:', statsData.reason)
       }
       
-      if (coPoData.status === 'fulfilled') {
+      if (coPoData.status === 'fulfilled' && coPoData.value.success) {
         console.log('CO/PO API Response:', coPoData.value)
-        console.log('CO/PO Data:', coPoData.value.data)
-        setCoPoAnalytics(coPoData.value || [])
+        setCoPoAnalytics(coPoData.value.data || [])
       } else {
         console.error('CO/PO API Error:', coPoData.reason)
       }
       
-      if (studentData.status === 'fulfilled') {
+      if (studentData.status === 'fulfilled' && studentData.value.success) {
         console.log('Student API Response:', studentData.value)
-        console.log('Student Data:', studentData.value.data)
-        setStudentPerformance(studentData.value || [])
+        setStudentPerformance(studentData.value.data || [])
       } else {
         console.error('Student API Error:', studentData.reason)
       }
@@ -345,7 +342,7 @@ export function EnhancedAdminDashboard() {
           <div className="bg-white rounded-lg shadow p-6">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">Recent Activities</h3>
             <div className="space-y-3">
-              {stats?.recent_activities?.map((activity, index) => (
+              {(stats as any)?.recent_activities?.map((activity: any, index: number) => (
                 <div key={index} className="flex items-center p-3 bg-gray-50 rounded-lg">
                   <Activity className="h-5 w-5 text-blue-500 mr-3" />
                   <div className="flex-1">
@@ -466,20 +463,20 @@ export function EnhancedAdminDashboard() {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         <span className={`px-2 py-1 text-xs font-medium rounded-full ${
-                          student.overall_grade === 'A+' || student.overall_grade === 'A' 
+                          (student as any).overall_grade === 'A+' || (student as any).overall_grade === 'A' 
                             ? 'bg-green-100 text-green-800'
-                            : student.overall_grade === 'B+' || student.overall_grade === 'B'
+                            : (student as any).overall_grade === 'B+' || (student as any).overall_grade === 'B'
                             ? 'bg-blue-100 text-blue-800'
                             : 'bg-yellow-100 text-yellow-800'
                         }`}>
-                          {student.overall_grade}
+                          {(student as any).overall_grade}
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {student.gpa.toFixed(2)}
+                        {(student as any).gpa?.toFixed(2) || 0}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {student.attendance_percentage.toFixed(1)}%
+                        {(student as any).attendance_percentage?.toFixed(1) || 0}%
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         <button className="text-blue-600 hover:text-blue-900">
@@ -501,7 +498,7 @@ export function EnhancedAdminDashboard() {
           <div className="bg-white rounded-lg shadow p-6">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">System Activities</h3>
             <div className="space-y-3">
-              {stats?.recent_activities?.map((activity, index) => (
+              {(stats as any)?.recent_activities?.map((activity: any, index: number) => (
                 <div key={index} className="flex items-center p-4 bg-gray-50 rounded-lg">
                   <div className="flex-shrink-0">
                     <Activity className="h-6 w-6 text-blue-500" />
@@ -526,3 +523,5 @@ export function EnhancedAdminDashboard() {
     </div>
   )
 }
+
+export default EnhancedAdminDashboard

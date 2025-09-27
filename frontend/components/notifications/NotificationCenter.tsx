@@ -33,7 +33,7 @@ export default function NotificationCenter({ userId }: NotificationCenterProps) 
     try {
       setLoading(true);
       const data = await apiClient.getNotifications({ limit: 20 });
-      setNotifications(data);
+      setNotifications(data.data || []);
     } catch (error) {
       console.error('Failed to fetch notifications:', error);
     } finally {
@@ -44,7 +44,7 @@ export default function NotificationCenter({ userId }: NotificationCenterProps) 
   const fetchUnreadCount = async () => {
     try {
       const data = await apiClient.getUnreadNotificationCount();
-      setUnreadCount(data.unread_count);
+      setUnreadCount(data.data?.unread_count || 0);
     } catch (error) {
       console.error('Failed to fetch unread count:', error);
     }

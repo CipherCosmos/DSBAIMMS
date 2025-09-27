@@ -58,11 +58,17 @@ export default function SemestersPage() {
     try {
       setLoading(true)
       const [semestersData, departmentsData] = await Promise.all([
-        apiClient.get('/api/semesters'),
-        apiClient.get('/api/departments')
+        apiClient.getSemesters(),
+        apiClient.getDepartments()
       ])
-    setSemesters(semestersData || [])
-    setDepartments(departmentsData || [])
+      
+      if (semestersData.success) {
+        setSemesters(semestersData.data || [])
+      }
+      
+      if (departmentsData.success) {
+        setDepartments(departmentsData.data || [])
+      }
     } catch (error) {
       console.error('Error loading data:', error)
       toast.error('Failed to load data')
@@ -73,10 +79,12 @@ export default function SemestersPage() {
 
   const handleCreateSemester = async (semesterData: any) => {
     try {
-      await apiClient.post('/api/semesters', semesterData)
-      toast.success('Semester created successfully')
-      setShowCreateForm(false)
-      loadData()
+      const response = await apiClient.createSemester(semesterData)
+      if (response.success) {
+        toast.success('Semester created successfully')
+        setShowCreateForm(false)
+        loadData()
+      }
     } catch (error: any) {
       toast.error(error.message || 'Failed to create semester')
     }
@@ -84,10 +92,12 @@ export default function SemestersPage() {
 
   const handleUpdateSemester = async (semesterData: any) => {
     try {
-      await apiClient.put(`/api/semesters/${editingSemester?.id}`, semesterData)
-      toast.success('Semester updated successfully')
-      setEditingSemester(null)
-      loadData()
+      const response = await apiClient.updateSemester(editingSemester?.id!, semesterData)
+      if (response.success) {
+        toast.success('Semester updated successfully')
+        setEditingSemester(null)
+        loadData()
+      }
     } catch (error: any) {
       toast.error(error.message || 'Failed to update semester')
     }
@@ -97,9 +107,11 @@ export default function SemestersPage() {
     if (!confirm('Are you sure you want to delete this semester?')) return
     
     try {
-      await apiClient.delete(`/api/semesters/${semesterId}`)
-      toast.success('Semester deleted successfully')
-      loadData()
+      const response = await apiClient.deleteSemester(semesterId)
+      if (response.success) {
+        toast.success('Semester deleted successfully')
+        loadData()
+      }
     } catch (error: any) {
       toast.error(error.message || 'Failed to delete semester')
     }

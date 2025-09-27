@@ -419,7 +419,7 @@ function DepartmentsPage() {
       toast.success(`Successfully imported ${response.data.imported_count} departments`)
       setShowBulkImport(false)
       setImportFile(null)
-      loadData()
+      loadDepartments()
     } catch (error: any) {
       toast.error(error.response?.data?.detail || 'Import failed')
     } finally {
@@ -484,7 +484,7 @@ function DepartmentsPage() {
       
       await apiClient.createDepartment(duplicateData)
       toast.success('Department duplicated successfully')
-      loadData()
+      loadDepartments()
     } catch (error: any) {
       toast.error('Failed to duplicate department')
     }

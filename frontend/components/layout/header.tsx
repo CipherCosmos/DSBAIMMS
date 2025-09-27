@@ -1,10 +1,14 @@
 'use client'
 
 import { useAuth } from '@/hooks/useAuth'
-import { Bell, ChevronDown, LogOut, User } from 'lucide-react'
+import { Bell, ChevronDown, LogOut, User, Menu } from 'lucide-react'
 import { useState } from 'react'
 
-export function Header() {
+interface HeaderProps {
+  onMobileMenuToggle?: () => void
+}
+
+export function Header({ onMobileMenuToggle }: HeaderProps) {
   const { user, logout } = useAuth()
   const [showDropdown, setShowDropdown] = useState(false)
 
@@ -34,9 +38,19 @@ export function Header() {
     <header className="bg-white shadow-sm border-b">
       <div className="flex justify-between items-center px-6 py-4">
         <div className="flex items-center">
-          <h1 className="text-lg font-semibold text-gray-900">
-            Welcome back, {user.full_name}!
-          </h1>
+          {/* Mobile menu button */}
+          <button
+            onClick={onMobileMenuToggle}
+            className="md:hidden p-2 rounded-md text-gray-400 hover:text-gray-500 hover:bg-gray-100 mr-2"
+          >
+            <Menu className="h-6 w-6" />
+          </button>
+          
+          <div className="hidden md:block">
+            <h1 className="text-lg font-semibold text-gray-900">
+              Welcome back, {user.full_name}!
+            </h1>
+          </div>
         </div>
         
         <div className="flex items-center space-x-4">

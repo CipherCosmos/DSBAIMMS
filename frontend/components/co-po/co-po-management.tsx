@@ -234,8 +234,8 @@ export function COPOManagement() {
       case 'co':
         setEditingCO(item as CO)
         setCOForm({
-          name: item.name,
-          description: item.description,
+          name: (item as any).name || '',
+          description: (item as any).description || '',
           subject_id: (item as CO).subject_id,
           department_id: (item as CO).department_id
         })
@@ -244,8 +244,8 @@ export function COPOManagement() {
       case 'po':
         setEditingPO(item as PO)
         setPOForm({
-          name: item.name,
-          description: item.description,
+          name: (item as any).name || '',
+          description: (item as any).description || '',
           department_id: (item as PO).department_id
         })
         setShowPOForm(true)

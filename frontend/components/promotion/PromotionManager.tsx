@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { toast } from 'sonner'
+import toast from 'react-hot-toast'
 
 interface Student {
   id: number
@@ -72,8 +72,8 @@ export default function PromotionManager({ departmentId }: PromotionManagerProps
       const params: any = {}
       if (departmentId) params.department_id = departmentId
 
-      const data = await apiClient.getStudentsForPromotion(params)
-      setStudents(data)
+      const data = await apiClient.get(`/api/students/promotion`, { params })
+      setStudents(data.data || [])
     } catch (error) {
       console.error('Failed to fetch students:', error)
       toast.error('Failed to fetch students')
@@ -87,8 +87,8 @@ export default function PromotionManager({ departmentId }: PromotionManagerProps
       const params: any = {}
       if (departmentId) params.department_id = departmentId
 
-      const data = await apiClient.getPromotionBatches(params)
-      setPromotionBatches(data)
+      const data = await apiClient.get(`/api/promotion/batches`, { params })
+      setPromotionBatches(data.data || [])
     } catch (error) {
       console.error('Failed to fetch promotion batches:', error)
       toast.error('Failed to fetch promotion batches')
@@ -102,8 +102,8 @@ export default function PromotionManager({ departmentId }: PromotionManagerProps
         apiClient.getDepartments()
       ])
 
-      setSemesters(semestersData)
-      setDepartments(departmentsData)
+      setSemesters(semestersData.data || [])
+      setDepartments(departmentsData.data || [])
     } catch (error) {
       console.error('Failed to fetch initial data:', error)
     }
@@ -133,12 +133,12 @@ export default function PromotionManager({ departmentId }: PromotionManagerProps
     }
 
     try {
-      await apiClient.promoteStudents({
-        student_ids: selectedStudents,
-        from_semester_id: promotionData.from_semester_id,
-        to_semester_id: promotionData.to_semester_id,
-        department_id: promotionData.department_id
-      })
+      await apiClient.promoteStudents(promotionData.from_semester_id, promotionData.to_semester_id)
+        // student_ids: selectedStudents,
+        // from_semester_id: promotionData.from_semester_id,
+        // to_semester_id: promotionData.to_semester_id,
+        // department_id: promotionData.department_id
+      // })
       toast.success(`Successfully promoted ${selectedStudents.length} students`)
       setSelectedStudents([])
       setShowPromotionModal(false)

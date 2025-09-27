@@ -135,11 +135,26 @@ export default function COPOPage() {
         apiClient.getDepartments(),
         apiClient.getSubjects()
       ])
-      setPos(Array.isArray(posData) ? posData : [])
-      setCos(Array.isArray(cosData) ? cosData : [])
-      setMappings(Array.isArray(mappingsData) ? mappingsData : [])
-      setDepartments(Array.isArray(deptData) ? deptData : [])
-      setSubjects(Array.isArray(subjData) ? subjData : [])
+      
+      if (posData.success) {
+        setPos(Array.isArray(posData.data) ? posData.data : [])
+      }
+      
+      if (cosData.success) {
+        setCos(Array.isArray(cosData.data) ? cosData.data : [])
+      }
+      
+      if (mappingsData.success) {
+        setMappings(Array.isArray(mappingsData.data) ? mappingsData.data : [])
+      }
+      
+      if (deptData.success) {
+        setDepartments(Array.isArray(deptData.data) ? deptData.data : [])
+      }
+      
+      if (subjData.success) {
+        setSubjects(Array.isArray(subjData.data) ? subjData.data : [])
+      }
     } catch (error) {
       console.error('Error loading initial data:', error)
       toast.error('Failed to load data')
@@ -154,7 +169,7 @@ export default function COPOPage() {
 
   const handleCreatePO = async (e: React.FormEvent) => {
     e.preventDefault()
-    const formData = new FormData(e.currentTarget)
+    const formData = new FormData(e.currentTarget as HTMLFormElement)
     const poData = {
       name: formData.get('name') as string,
       description: formData.get('description') as string,
@@ -173,7 +188,7 @@ export default function COPOPage() {
 
   const handleCreateCO = async (e: React.FormEvent) => {
     e.preventDefault()
-    const formData = new FormData(e.currentTarget)
+    const formData = new FormData(e.currentTarget as HTMLFormElement)
     const coData = {
       name: formData.get('name') as string,
       description: formData.get('description') as string,
@@ -192,7 +207,7 @@ export default function COPOPage() {
 
   const handleCreateMapping = async (e: React.FormEvent) => {
     e.preventDefault()
-    const formData = new FormData(e.currentTarget)
+    const formData = new FormData(e.currentTarget as HTMLFormElement)
     const mappingData = {
       co_id: parseInt(formData.get('co_id') as string),
       po_id: parseInt(formData.get('po_id') as string),
@@ -288,7 +303,7 @@ export default function COPOPage() {
     try {
       const departmentId = selectedDepartment || departments[0]?.id
       if (departmentId) {
-        const data = await apiClient.getCOPORecommendations(departmentId)
+        const data = await apiClient.getCOPORecommendations(Number(departmentId))
         setRecommendations(Array.isArray(data) ? data : [])
       }
     } catch (error) {
@@ -749,7 +764,7 @@ export default function COPOPage() {
                 <div>
                   <label className="block text-sm font-medium mb-1">Subject</label>
                   <select
-                    value={smartFormData.subject_id}
+                    value={(smartFormData as any).subject_id || ''}
                     onChange={(e) => setSmartFormData(prev => ({...prev, subject_id: parseInt(e.target.value)}))}
                     className="w-full px-3 py-2 border rounded-md"
                     required

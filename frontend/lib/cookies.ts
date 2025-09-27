@@ -16,7 +16,9 @@ export function setCookie(name: string, value: string, days: number = 7): void {
   const expires = new Date()
   expires.setDate(expires.getDate() + days)
   
-  document.cookie = `${name}=${value}; expires=${expires.toUTCString()}; path=/;`
+  // Set cookie with proper attributes for development
+  document.cookie = `${name}=${value}; expires=${expires.toUTCString()}; path=/; SameSite=Lax;`
+  console.log('Cookie set:', name, '=', value.substring(0, 20) + '...')
 }
 
 export function deleteCookie(name: string): void {

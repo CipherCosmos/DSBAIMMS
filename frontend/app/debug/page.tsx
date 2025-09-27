@@ -4,10 +4,10 @@ import { useState, useEffect } from 'react'
 import { apiClient } from '@/lib/api'
 
 export default function DebugPage() {
-  const [departments, setDepartments] = useState([])
-  const [classes, setClasses] = useState([])
-  const [subjects, setSubjects] = useState([])
-  const [users, setUsers] = useState([])
+  const [departments, setDepartments] = useState<any[]>([])
+  const [classes, setClasses] = useState<any[]>([])
+  const [subjects, setSubjects] = useState<any[]>([])
+  const [users, setUsers] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
@@ -22,31 +22,31 @@ export default function DebugPage() {
       console.log('Testing departments...')
       const deptResponse = await apiClient.getDepartments()
       console.log('Departments response:', deptResponse)
-      setDepartments(Array.isArray(deptResponse) ? deptResponse : [])
+      setDepartments(Array.isArray(deptResponse.data) ? deptResponse.data : [])
       
       // Test classes
       console.log('Testing classes...')
       const classResponse = await apiClient.getClasses()
       console.log('Classes response:', classResponse)
-      setClasses(Array.isArray(classResponse) ? classResponse : [])
+      setClasses(Array.isArray(classResponse.data) ? classResponse.data : [])
       
       // Test subjects
       console.log('Testing subjects...')
       const subjectResponse = await apiClient.getSubjects()
       console.log('Subjects response:', subjectResponse)
-      setSubjects(Array.isArray(subjectResponse) ? subjectResponse : [])
+      setSubjects(Array.isArray(subjectResponse.data) ? subjectResponse.data : [])
       
       // Test users
       console.log('Testing users...')
       const userResponse = await apiClient.getUsers()
       console.log('Users response:', userResponse)
-      setUsers(Array.isArray(userResponse) ? userResponse : [])
+      setUsers(Array.isArray(userResponse.data) ? userResponse.data : [])
       
       console.log('All APIs tested successfully!')
       
     } catch (err) {
       console.error('API test error:', err)
-      setError(err.message)
+      setError((err as Error).message)
     } finally {
       setLoading(false)
     }

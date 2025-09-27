@@ -70,7 +70,7 @@ export class PredictiveAnalyticsService {
   async trainModels(): Promise<void> {
     try {
       const response = await apiClient.post('/api/analytics/train-models')
-      this.models = new Map(Object.entries(response.models))
+      this.models = new Map(Object.entries(response.data?.models || {}))
     } catch (error) {
       console.error('Error training models:', error)
       throw error
@@ -89,7 +89,7 @@ export class PredictiveAnalyticsService {
       const response = await apiClient.get('/api/analytics/performance-predictions', {
         params: filters
       })
-      return response
+      return response.data
     } catch (error) {
       console.error('Error getting performance predictions:', error)
       throw error
@@ -104,7 +104,7 @@ export class PredictiveAnalyticsService {
       const response = await apiClient.get('/api/analytics/trend-analysis', {
         params: { metric, time_range: timeRange }
       })
-      return response
+      return response.data
     } catch (error) {
       console.error('Error getting trend analysis:', error)
       throw error
@@ -123,7 +123,7 @@ export class PredictiveAnalyticsService {
       const response = await apiClient.get('/api/analytics/risk-assessment', {
         params: { student_id: studentId, ...filters }
       })
-      return response
+      return response.data
     } catch (error) {
       console.error('Error getting risk assessment:', error)
       throw error
@@ -143,7 +143,7 @@ export class PredictiveAnalyticsService {
   }>> {
     try {
       const response = await apiClient.get('/api/analytics/predictive-insights')
-      return response
+      return response.data
     } catch (error) {
       console.error('Error getting predictive insights:', error)
       throw error
@@ -165,7 +165,7 @@ export class PredictiveAnalyticsService {
         student_id: studentId,
         context
       })
-      return response
+      return response.data
     } catch (error) {
       console.error('Error generating recommendations:', error)
       throw error
@@ -194,7 +194,7 @@ export class PredictiveAnalyticsService {
       const response = await apiClient.get('/api/analytics/copo-attainment-analysis', {
         params: filters
       })
-      return response
+      return response.data
     } catch (error) {
       console.error('Error analyzing CO/PO attainment:', error)
       throw error
@@ -212,7 +212,7 @@ export class PredictiveAnalyticsService {
   }>> {
     try {
       const response = await apiClient.get('/api/analytics/early-warning-signals')
-      return response
+      return response.data
     } catch (error) {
       console.error('Error getting early warning signals:', error)
       throw error
@@ -235,7 +235,7 @@ export class PredictiveAnalyticsService {
         exam_id: examId,
         student_ids: studentIds
       })
-      return response
+      return response.data
     } catch (error) {
       console.error('Error predicting exam outcomes:', error)
       throw error
@@ -252,7 +252,7 @@ export class PredictiveAnalyticsService {
   }>> {
     try {
       const response = await apiClient.get('/api/analytics/model-performance')
-      return response
+      return response.data
     } catch (error) {
       console.error('Error getting model performance:', error)
       throw error

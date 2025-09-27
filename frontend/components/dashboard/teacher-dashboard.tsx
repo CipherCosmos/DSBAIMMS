@@ -28,7 +28,7 @@ export function TeacherDashboard() {
         // Calculate total students from subjects
         const subjectsData = subjects.data || []
         const examsData = exams.data || []
-        const totalStudents = subjectsData.reduce((total, subject) => {
+        const totalStudents = subjectsData.reduce((total: number, subject: any) => {
           return total + (subject.student_count || 0)
         }, 0)
 
@@ -137,3 +137,5 @@ export function TeacherDashboard() {
     </div>
   )
 }
+
+export default TeacherDashboard

@@ -88,9 +88,9 @@ export default function ExamCreationForm({ onClose, onSuccess }: ExamCreationFor
         apiClient.getClasses(),
         apiClient.getCOs()
       ])
-      setSubjects(subjectsData)
-      setClasses(classesData)
-      setCos(cosData)
+      setSubjects(subjectsData?.data || [])
+      setClasses(classesData?.data || [])
+      setCos(cosData?.data || [])
     } catch (error) {
       console.error('Error loading initial data:', error)
       toast.error('Failed to load data')
@@ -212,7 +212,7 @@ export default function ExamCreationForm({ onClose, onSuccess }: ExamCreationFor
         total_marks: sections.reduce((sum, section) => sum + section.total_marks, 0)
       })
 
-      const examId = examResponse.id
+      const examId = examResponse.data?.id
 
       // Create sections
       for (const section of sections) {

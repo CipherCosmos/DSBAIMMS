@@ -177,10 +177,10 @@ export function useRealtimeAnalytics() {
     wsService.on('connected', () => setConnected(true))
     wsService.on('disconnected', () => setConnected(false))
     wsService.on('realtime_stats', setRealtimeStats)
-    wsService.on('predictive_update', (data) => {
+    wsService.on('predictive_update', (data: any) => {
       setPredictiveInsights(prev => [...prev, data])
     })
-    wsService.on('user_activity', (data) => {
+    wsService.on('user_activity', (data: any) => {
       setUserActivity(prev => [data, ...prev.slice(0, 99)]) // Keep last 100 activities
     })
 
@@ -219,10 +219,10 @@ export function useRealtimeNotifications(userId: string) {
   useEffect(() => {
     wsService.on('connected', () => setConnected(true))
     wsService.on('disconnected', () => setConnected(false))
-    wsService.on('notification', (notification) => {
+    wsService.on('notification', (notification: any) => {
       setNotifications(prev => [notification, ...prev])
     })
-    wsService.on('system_alert', (alert) => {
+    wsService.on('system_alert', (alert: any) => {
       setSystemAlerts(prev => [alert, ...prev])
     })
 

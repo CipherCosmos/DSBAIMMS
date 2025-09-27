@@ -4,6 +4,9 @@ import { useState, useEffect } from 'react'
 import { useAuth } from '@/hooks/useAuth'
 import { apiClient } from '@/lib/api'
 import { AdminGuard } from '@/components/auth/RoleGuard'
+import { ErrorBoundary } from '@/components/common/ErrorBoundary'
+import { UsersLoading, CardLoading, InlineLoading } from '@/components/common/LoadingSpinner'
+import type { User, Department, Class, Subject, FieldConfig, UserStats, ApiResponse } from '@/types/api'
 import { 
   Plus, Edit, Trash2, Users, GraduationCap, Search, Download, Upload, 
   Eye, Filter, RefreshCw, UserCheck, UserX, Mail, Phone, Calendar, 
@@ -17,34 +20,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { toast } from 'react-hot-toast'
 
-interface User {
-  id: number
-  username: string
-  email: string
-  full_name: string
-  first_name?: string
-  last_name?: string
-  role: string
-  department_id?: number
-  department_name?: string
-  class_id?: number
-  class_name?: string
-  student_id?: string
-  employee_id?: string
-  phone?: string
-  is_active: boolean
-  created_at?: string
-  updated_at?: string
-  last_login?: string
-  profile_picture?: string
-  address?: string
-  date_of_birth?: string
-  gender?: string
-  qualification?: string
-  experience_years?: number
-  subjects?: string[]
-  specializations?: string[]
-}
+// Using imported User type from @/types/api
 
 interface Department {
   id: number
@@ -90,9 +66,9 @@ function UsersPage() {
     inactive: 0,
     byRole: {} as Record<string, number>
   })
-  const [availableSubjects, setAvailableSubjects] = useState<any[]>([])
-  const [availableRoles, setAvailableRoles] = useState<any[]>([])
-  const [fieldConfig, setFieldConfig] = useState<any>(null)
+  const [availableSubjects, setAvailableSubjects] = useState<Subject[]>([])
+  const [availableRoles, setAvailableRoles] = useState<string[]>([])
+  const [fieldConfig, setFieldConfig] = useState<FieldConfig | null>(null)
   const [formSelectedRole, setFormSelectedRole] = useState('student')
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false)
   const [showUserActivity, setShowUserActivity] = useState(false)
@@ -154,10 +130,22 @@ function UsersPage() {
       if (selectedStatus) params.append('is_active', selectedStatus)
 
       const response = await apiClient.getUsers(params.toString())
-        setUsers(Array.isArray(response) ? response : [])
-    } catch (error) {
+      console.log('Users API Response:', response)
+      
+      // Handle different response structures
+      if (response && response.success) {
+        setUsers(Array.isArray(response.data) ? response.data : [])
+      } else if (Array.isArray(response)) {
+        setUsers(response)
+      } else {
+        setUsers([])
+        console.warn('Unexpected response format:', response)
+      }
+    } catch (error: any) {
       console.error('Error loading users:', error)
-      toast.error('Failed to load users')
+      const errorMessage = error?.message || 'Failed to load users'
+      toast.error(errorMessage)
+      setUsers([]) // Set empty array on error
     } finally {
       setLoading(false)
     }
@@ -171,12 +159,20 @@ function UsersPage() {
         apiClient.getSubjects(),
         apiClient.getAvailableRoles()
       ])
-        setDepartments(Array.isArray(departmentsData) ? departmentsData : [])
-        setClasses(Array.isArray(classesData) ? classesData : [])
-        setAvailableSubjects(Array.isArray(subjectsData) ? subjectsData : [])
-        setAvailableRoles(Array.isArray(rolesData) ? rolesData : [])
-    } catch (error) {
+      
+      // Handle response structures consistently
+      setDepartments(Array.isArray(departmentsData?.data) ? departmentsData.data : Array.isArray(departmentsData) ? departmentsData : [])
+      setClasses(Array.isArray(classesData?.data) ? classesData.data : Array.isArray(classesData) ? classesData : [])
+      setAvailableSubjects(Array.isArray(subjectsData?.data) ? subjectsData.data : Array.isArray(subjectsData) ? subjectsData : [])
+      setAvailableRoles(Array.isArray(rolesData?.data) ? rolesData.data : Array.isArray(rolesData) ? rolesData : [])
+    } catch (error: any) {
       console.error('Error loading initial data:', error)
+      toast.error('Failed to load some initial data')
+      // Set empty arrays to prevent crashes
+      setDepartments([])
+      setClasses([])
+      setAvailableSubjects([])
+      setAvailableRoles([])
     }
   }
 
@@ -200,7 +196,7 @@ function UsersPage() {
     try {
       const data = await apiClient.getUserStats()
       console.log('Stats data:', data)
-      setStats(data || { total: 0, active: 0, inactive: 0, byRole: {} })
+      setStats(data.data || { total: 0, active: 0, inactive: 0, byRole: {} })
     } catch (error) {
       console.error('Error loading stats:', error)
       // Calculate stats from users data as fallback
@@ -322,7 +318,7 @@ function UsersPage() {
       }
 
       if (formData.password) {
-        updateData.password = formData.password
+        // updateData.password = formData.password // Password update handled separately
       }
 
       await apiClient.updateUser(editingUser.id, updateData)
@@ -552,10 +548,10 @@ function UsersPage() {
   const handleExport = async (format: string) => {
     try {
       setLoading(true)
-      const data = await apiClient.exportUsers(format, selectedRole, selectedDepartment)
+      const data = await apiClient.exportUsers(format, selectedRole, Number(selectedDepartment))
       
       if (format === 'csv') {
-        const blob = new Blob([data.csv_data], { type: 'text/csv' })
+        const blob = new Blob([data.data?.csv_data], { type: 'text/csv' })
         const url = window.URL.createObjectURL(blob)
         const a = document.createElement('a')
         a.href = url
@@ -567,7 +563,7 @@ function UsersPage() {
         toast.success('CSV file downloaded successfully')
       } else if (format === 'pdf') {
         // For PDF, we'll use a simple HTML to PDF conversion
-        const htmlContent = generatePDFContent(data.pdf_data)
+        const htmlContent = generatePDFContent(data.data?.pdf_data)
         const printWindow = window.open('', '_blank')
         if (printWindow) {
           printWindow.document.write(htmlContent)
@@ -687,11 +683,7 @@ function UsersPage() {
   })
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-      </div>
-    )
+    return <UsersLoading />
   }
 
   return (
@@ -874,7 +866,7 @@ function UsersPage() {
               </div>
               <div className="ml-4">
                 <p className="text-sm font-medium text-gray-600">Roles</p>
-                <p className="text-2xl font-bold text-gray-900">{stats.roles || 0}</p>
+                <p className="text-2xl font-bold text-gray-900">{Object.keys(stats.byRole || {}).length}</p>
               </div>
             </div>
           </CardContent>
@@ -2067,7 +2059,9 @@ function UsersPage() {
 export default function UsersPageWithGuard() {
   return (
     <AdminGuard>
-      <UsersPage />
+      <ErrorBoundary>
+        <UsersPage />
+      </ErrorBoundary>
     </AdminGuard>
   )
 }

@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, HTTPException, Request
+from fastapi import FastAPI, Depends, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from datetime import datetime
@@ -51,7 +51,7 @@ def log_audit(db: Session, user_id: int, action: str, table_name: str, record_id
     db.commit()
 
 @app.post("/login", response_model=TokenResponse)
-async def login(login_data: LoginRequest, request: Request, db: Session = Depends(get_db)):
+async def login(login_data: LoginRequest, request: Request, response: Response, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.username == login_data.username).first()
 
     if not user:
@@ -88,6 +88,26 @@ async def login(login_data: LoginRequest, request: Request, db: Session = Depend
 
     # Log audit
     log_audit(db, user.id, "LOGIN", "users", user.id, request=request)
+
+    # Set HTTP cookies for authentication
+    response.set_cookie(
+        key="access_token",
+        value=access_token,
+        httponly=False,  # Allow JavaScript access for middleware
+        secure=False,  # Set to True in production with HTTPS
+        samesite="lax",
+        domain="localhost",  # Set domain to localhost for cross-port access
+        max_age=3600  # 1 hour
+    )
+    response.set_cookie(
+        key="refresh_token", 
+        value=refresh_token,
+        httponly=True,  # Keep refresh token httponly for security
+        secure=False,  # Set to True in production with HTTPS
+        samesite="lax",
+        domain="localhost",  # Set domain to localhost for cross-port access
+        max_age=604800  # 7 days
+    )
 
     return TokenResponse(
         access_token=access_token,
@@ -149,7 +169,7 @@ async def get_current_user(request: Request, db: Session = Depends(get_db)):
     return UserResponse(**user_dict)
 
 @app.post("/logout")
-async def logout(request: Request, db: Session = Depends(get_db)):
+async def logout(request: Request, response: Response, db: Session = Depends(get_db)):
     # Extract user ID from token
     auth_header = request.headers.get("Authorization")
     if auth_header and auth_header.startswith("Bearer "):
@@ -167,7 +187,75 @@ async def logout(request: Request, db: Session = Depends(get_db)):
         except:
             pass
 
+    # Clear authentication cookies
+    response.delete_cookie(key="access_token")
+    response.delete_cookie(key="refresh_token")
+
     return {"message": "Logged out successfully"}
+
+@app.post("/refresh-token", response_model=TokenResponse)
+async def refresh_token(request: Request, response: Response, db: Session = Depends(get_db)):
+    """Refresh access token using refresh token"""
+    # Get refresh token from cookie
+    refresh_token = request.cookies.get("refresh_token")
+    if not refresh_token:
+        raise HTTPException(status_code=401, detail="Refresh token not found")
+    
+    try:
+        from shared.auth import verify_token
+        payload = verify_token(refresh_token)
+        
+        # Verify it's a refresh token
+        if payload.get("type") != "refresh":
+            raise HTTPException(status_code=401, detail="Invalid token type")
+        
+        user_id = payload.get("sub")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Invalid token")
+        
+        # Get user from database
+        user = db.query(User).filter(User.id == user_id).first()
+        if not user or not user.is_active:
+            raise HTTPException(status_code=401, detail="User not found or inactive")
+        
+        # Create new access token
+        new_access_token = create_access_token(data={"sub": str(user.id)})
+        
+        # Update user data in cache
+        user_data = {
+            "id": user.id,
+            "username": user.username,
+            "email": user.email,
+            "full_name": user.full_name,
+            "role": user.role,
+            "department_id": user.department_id,
+            "class_id": user.class_id,
+            "is_active": user.is_active,
+            "created_at": user.created_at.isoformat() if user.created_at else None
+        }
+        redis_client.setex(f"user:{user.id}", 3600, json.dumps(user_data))
+        
+        # Set new access token cookie
+        response.set_cookie(
+            key="access_token",
+            value=new_access_token,
+            httponly=False,
+            secure=False,
+            samesite="lax",
+            domain="localhost",
+            max_age=3600
+        )
+        
+        return TokenResponse(
+            access_token=new_access_token,
+            refresh_token=refresh_token,  # Keep the same refresh token
+            user=user_data
+        )
+        
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid refresh token")
 
 @app.post("/change-password")
 async def change_password(

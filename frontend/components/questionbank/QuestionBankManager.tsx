@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import toast from 'react-hot-toast';
 import { Plus, Search, BookOpen, Users, Calendar, Eye, Trash2, PlusCircle, X } from 'lucide-react';
 import { apiClient } from '@/lib/api';
 
@@ -15,6 +16,7 @@ interface QuestionBank {
   is_public: boolean;
   created_at: string;
   updated_at?: string;
+  questions?: QuestionBankItem[];
 }
 
 interface QuestionBankItem {
@@ -61,7 +63,7 @@ export default function QuestionBankManager({
       if (filterPublic !== null) params.is_public = filterPublic;
 
       const data = await apiClient.getQuestionBanks(params);
-      setQuestionBanks(data);
+      setQuestionBanks(data.data || []);
     } catch (error) {
       console.error('Failed to fetch question banks:', error);
     } finally {
@@ -72,7 +74,7 @@ export default function QuestionBankManager({
   const fetchBankQuestions = async (bankId: number) => {
     try {
       const data = await apiClient.getQuestionBankQuestions(bankId);
-      setBankQuestions(data);
+      setBankQuestions(data.data || []);
     } catch (error) {
       console.error('Failed to fetch bank questions:', error);
     }
@@ -81,7 +83,7 @@ export default function QuestionBankManager({
   const createQuestionBank = async (bankData: Partial<QuestionBank>) => {
     try {
       const newBank = await apiClient.createQuestionBank(bankData);
-      setQuestionBanks(prev => [newBank, ...prev]);
+      setQuestionBanks(prev => [newBank.data, ...prev]);
       setShowCreateModal(false);
     } catch (error) {
       console.error('Failed to create question bank:', error);
@@ -96,6 +98,25 @@ export default function QuestionBankManager({
       setQuestionBanks(prev => prev.filter(bank => bank.id !== bankId));
     } catch (error) {
       console.error('Failed to delete question bank:', error);
+    }
+  };
+
+  const handleRemoveQuestion = async (bankId: number, questionId: number) => {
+    if (!confirm('Are you sure you want to remove this question from the bank?')) return;
+
+    try {
+      await apiClient.removeQuestionFromBank(bankId, questionId);
+      setQuestionBanks(prev => 
+        prev.map(bank => 
+          bank.id === bankId 
+            ? { ...bank, questions: bank.questions?.filter((q: QuestionBankItem) => q.id !== questionId) || [] }
+            : bank
+        )
+      );
+      toast.success('Question removed successfully');
+    } catch (error) {
+      console.error('Failed to remove question:', error);
+      toast.error('Failed to remove question');
     }
   };
 
@@ -266,8 +287,8 @@ export default function QuestionBankManager({
             setShowQuestionsModal(false);
             setSelectedBank(null);
           }}
+          onRemoveQuestion={handleRemoveQuestion}
           onAddQuestion={addQuestionToBank}
-          onRemoveQuestion={removeQuestionFromBank}
         />
       )}
     </div>
@@ -297,7 +318,7 @@ function CreateQuestionBankModal({
     onCreate({
       ...formData,
       // department_id: departmentId,
-      subject_id: subjectId
+      // subject_id: subjectId
     });
   };
 
@@ -366,7 +387,8 @@ function CreateQuestionBankModal({
 function ViewQuestionsModal({
   bank,
   questions,
-  onClose
+  onClose,
+  onRemoveQuestion
 }: {
   bank: QuestionBank;
   questions: QuestionBankItem[];

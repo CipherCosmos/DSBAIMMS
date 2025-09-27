@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { toast } from 'sonner'
+import toast from 'react-hot-toast'
 
 interface Attendance {
   id: number
@@ -74,7 +74,7 @@ export default function AttendanceManager({ departmentId, classId, subjectId }: 
       if (subjectId) params.subject_id = subjectId
 
       const data = await apiClient.getAttendanceRecords(params)
-      setAttendanceRecords(data)
+      setAttendanceRecords(data.data || [])
     } catch (error) {
       console.error('Failed to fetch attendance records:', error)
       toast.error('Failed to fetch attendance records')
@@ -91,9 +91,9 @@ export default function AttendanceManager({ departmentId, classId, subjectId }: 
         apiClient.getClasses()
       ])
 
-      setStudents(studentsData)
-      setSubjects(subjectsData)
-      setClasses(classesData)
+      setStudents(studentsData?.data || [])
+      setSubjects(subjectsData?.data || [])
+      setClasses(classesData?.data || [])
     } catch (error) {
       console.error('Failed to fetch initial data:', error)
     }

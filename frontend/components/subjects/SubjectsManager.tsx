@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { toast } from 'sonner'
+import toast from 'react-hot-toast'
 
 interface Subject {
   id: number
@@ -74,7 +74,7 @@ export default function SubjectsManager({ departmentId }: SubjectsManagerProps) 
       if (departmentId) params.department_id = departmentId
 
       const data = await apiClient.getSubjects(params)
-      setSubjects(data)
+      setSubjects(data.data || [])
     } catch (error) {
       console.error('Failed to fetch subjects:', error)
       toast.error('Failed to fetch subjects')
@@ -92,10 +92,10 @@ export default function SubjectsManager({ departmentId }: SubjectsManagerProps) 
         apiClient.getUsers({ role: 'teacher' })
       ])
 
-      setSemesters(semestersData)
-      setDepartments(departmentsData)
-      setClasses(classesData)
-      setTeachers(teachersData)
+      setSemesters(semestersData?.data || [])
+      setDepartments(departmentsData?.data || [])
+      setClasses(classesData?.data || [])
+      setTeachers(teachersData?.data || [])
     } catch (error) {
       console.error('Failed to fetch initial data:', error)
     }

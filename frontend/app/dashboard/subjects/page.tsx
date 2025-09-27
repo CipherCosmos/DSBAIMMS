@@ -5,7 +5,7 @@ import { apiClient } from '@/lib/api'
 import { 
   FileText, Plus, Edit, Trash2, Save, X, Eye, 
   RefreshCw, Download, Upload, Filter, Search,
-  Users, BookOpen, Calendar, Building, Target, Award
+  Users, BookOpen, Calendar, Building, Target, Award, AlertCircle
 } from 'lucide-react'
 
 interface Subject {
@@ -105,12 +105,12 @@ export default function SubjectsPage() {
         apiClient.get('/api/pos')
       ])
 
-    let subjectsData = subjectsResponse || []
-    const classesData = classesResponse || []
-    const departmentsData = departmentsResponse || []
-    const usersData = usersResponse || []
-    const cosData = cosResponse || []
-    const posData = posResponse || []
+    let subjectsData = subjectsResponse?.data || []
+    const classesData = classesResponse?.data || []
+    const departmentsData = departmentsResponse?.data || []
+    const usersData = usersResponse?.data || []
+    const cosData = cosResponse?.data || []
+    const posData = posResponse?.data || []
 
       // Filter by department if selected
       if (filterDepartment) {

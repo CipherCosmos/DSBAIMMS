@@ -86,6 +86,75 @@ def log_audit(db: Session, user_id: int, action: str, table_name: str, record_id
     db.add(audit_log)
     db.commit()
 
+def calculate_student_performance(db: Session, student_id: int) -> Dict[str, Any]:
+    """Calculate student performance metrics"""
+    student = db.query(User).filter(User.id == student_id).first()
+    if not student:
+        return {}
+    
+    # Get current semester enrollment
+    current_enrollment = db.query(StudentSemesterEnrollment).filter(
+        StudentSemesterEnrollment.student_id == student_id,
+        StudentSemesterEnrollment.is_active == True
+    ).first()
+    
+    current_semester = current_enrollment.semester_id if current_enrollment else 1
+    
+    # Calculate attendance
+    total_attendance = db.query(Attendance).filter(
+        Attendance.student_id == student_id,
+        Attendance.status == "present"
+    ).count()
+    
+    total_days = db.query(Attendance).filter(
+        Attendance.student_id == student_id
+    ).count()
+    
+    attendance_percentage = (total_attendance / total_days * 100) if total_days > 0 else 0
+    
+    # Calculate marks
+    marks = db.query(Mark).filter(Mark.student_id == student_id).all()
+    total_obtained = sum(mark.marks_obtained for mark in marks)
+    total_maximum = sum(mark.max_marks for mark in marks)
+    average_marks = (total_obtained / total_maximum * 100) if total_maximum > 0 else 0
+    
+    # Calculate CGPA (simplified)
+    cgpa = (average_marks / 100) * 4.0
+    
+    # Count backlogs
+    subjects = db.query(Subject).join(Exam).join(Mark).filter(
+        Mark.student_id == student_id
+    ).distinct().all()
+    
+    backlog_count = 0
+    for subject in subjects:
+        subject_marks = db.query(Mark).join(Question).join(Exam).filter(
+            Exam.subject_id == subject.id,
+            Mark.student_id == student_id
+        ).all()
+        
+        if subject_marks:
+            subject_total = sum(mark.marks_obtained for mark in subject_marks)
+            subject_max = sum(mark.max_marks for mark in subject_marks)
+            subject_percentage = (subject_total / subject_max * 100) if subject_max > 0 else 0
+            
+            if subject_percentage < 40:  # 40% passing threshold
+                backlog_count += 1
+    
+    # Calculate credits
+    completed_credits = len(subjects) * 3  # Assuming 3 credits per subject
+    required_credits = 120  # Typical requirement
+    
+    return {
+        "current_semester": current_semester,
+        "attendance_percentage": attendance_percentage,
+        "average_marks": average_marks,
+        "cgpa": cgpa,
+        "backlog_count": backlog_count,
+        "credits_completed": completed_credits,
+        "credits_required": required_credits
+    }
+
 def check_promotion_eligibility(student_id: int, semester_id: int, criteria: PromotionCriteria, db: Session) -> Dict[str, Any]:
     """Check if a student is eligible for promotion based on criteria"""
     
@@ -262,36 +331,60 @@ async def get_promotion_batches(
     db: Session = Depends(get_db),
     current_user_id: int = Depends(RoleChecker(["admin", "hod", "teacher"]))
 ):
-    """Get promotion batches"""
-    # For now, return mock data as this would require a promotion batches table
-    batches = [
-        {
-            "id": 1,
-            "name": "Spring 2024 Promotion",
-            "from_semester": 1,
-            "to_semester": 2,
-            "academic_year": "2024",
-            "status": "active",
-            "total_students": 150,
-            "eligible_students": 120,
-            "created_at": "2024-01-15T10:00:00Z",
-            "created_by": "Admin"
-        },
-        {
-            "id": 2,
-            "name": "Fall 2023 Promotion",
-            "from_semester": 2,
-            "to_semester": 3,
-            "academic_year": "2023",
-            "status": "completed",
-            "total_students": 140,
-            "eligible_students": 135,
-            "created_at": "2023-08-15T10:00:00Z",
-            "created_by": "Admin"
-        }
-    ]
+    """Get promotion batches from actual semester enrollments"""
+    current_user = db.query(User).filter(User.id == current_user_id).first()
     
-    return {"data": batches, "total": len(batches)}
+    # Build query for semester enrollments
+    query = db.query(StudentSemesterEnrollment).options(
+        joinedload(StudentSemesterEnrollment.semester),
+        joinedload(StudentSemesterEnrollment.class_ref),
+        joinedload(StudentSemesterEnrollment.student)
+    )
+    
+    # Apply role-based filtering
+    if current_user.role == "hod":
+        # Filter by students in HOD's department
+        query = query.join(User).filter(User.department_id == current_user.department_id)
+    
+    # Apply filters
+    if status:
+        query = query.filter(StudentSemesterEnrollment.status == status)
+    
+    # Group by semester to create "batches"
+    enrollments = query.all()
+    
+    # Group enrollments by semester
+    batches = {}
+    for enrollment in enrollments:
+        semester_id = enrollment.semester_id
+        if semester_id not in batches:
+            semester = enrollment.semester
+            batches[semester_id] = {
+                "id": semester_id,
+                "name": f"{semester.name} Promotion" if semester else "Unknown Promotion",
+                "semester_id": semester_id,
+                "semester_name": semester.name if semester else "Unknown",
+                "academic_year": semester.academic_year if semester else "Unknown",
+                "status": "active",
+                "total_students": 0,
+                "eligible_students": 0,
+                "created_at": enrollment.enrollment_date.isoformat() if enrollment.enrollment_date else None,
+                "created_by": "System"
+            }
+        
+        batches[semester_id]["total_students"] += 1
+        
+        # Check if student is eligible (simplified check)
+        if enrollment.status == "active":
+            batches[semester_id]["eligible_students"] += 1
+    
+    batch_list = list(batches.values())
+    
+    # Apply pagination
+    total = len(batch_list)
+    paginated_batches = batch_list[skip:skip + limit]
+    
+    return {"data": paginated_batches, "total": total}
 
 # Promote students
 @app.post("/promote")

@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { toast } from 'sonner'
+import toast from 'react-hot-toast'
 
 interface Semester {
   id: number
@@ -67,7 +67,7 @@ export default function SemestersManager({ departmentId }: SemestersManagerProps
       if (departmentId) params.department_id = departmentId
 
       const data = await apiClient.getSemesters(params)
-      setSemesters(data)
+      setSemesters(data.data || [])
     } catch (error) {
       console.error('Failed to fetch semesters:', error)
       toast.error('Failed to fetch semesters')
@@ -79,7 +79,7 @@ export default function SemestersManager({ departmentId }: SemestersManagerProps
   const fetchDepartments = async () => {
     try {
       const data = await apiClient.getDepartments()
-      setDepartments(data)
+      setDepartments(data.data || [])
     } catch (error) {
       console.error('Failed to fetch departments:', error)
     }

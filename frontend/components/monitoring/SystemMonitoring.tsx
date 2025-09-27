@@ -41,11 +41,11 @@ function SystemMonitoring({ refreshInterval = 30 }: SystemMonitoringProps) {
       ]);
 
       if (statsData.status === 'fulfilled') {
-        setStats(statsData.value);
+        setStats(statsData.value.data);
       }
 
       if (alertsData.status === 'fulfilled') {
-        setAlerts(alertsData.value.alerts || []);
+        setAlerts(alertsData.value.data?.alerts || []);
       }
 
       if (healthData.status === 'fulfilled') {
@@ -290,7 +290,12 @@ function SystemMonitoring({ refreshInterval = 30 }: SystemMonitoringProps) {
         </div>
       )}
 
-      {/* Performance Chart Placeholder */}
+      <div className="h-64 flex items-center justify-center bg-gray-50 rounded-lg">
+        <div className="text-center">
+          <div className="text-2xl font-bold text-gray-600 mb-2">Performance Chart</div>
+          <div className="text-sm text-gray-500">Real-time performance metrics will be displayed here</div>
+        </div>
+      </div>
       <div className="bg-white p-6 rounded-lg border border-gray-200">
         <h3 className="text-lg font-semibold text-gray-900 mb-4">Performance Trends</h3>
         <div className="h-64 flex items-center justify-center text-gray-500">

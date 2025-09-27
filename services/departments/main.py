@@ -65,22 +65,20 @@ app.add_middleware(
     allow_headers=["*"]
 )
 
-def log_audit(db: Session, user_id: int, action: str, table_name: str, details: str = None):
+def log_audit(db: Session, user_id: int, action: str, table_name: str, record_id: int = None,
+              old_values: dict = None, new_values: dict = None, request: Request = None):
     """Log audit trail"""
     import json
-    
-    # Format details as JSON string
-    details_json = json.dumps({
-        "message": details or f"{action} on {table_name}",
-        "timestamp": datetime.utcnow().isoformat()
-    })
     
     audit_log = AuditLog(
         user_id=user_id,
         action=action,
         table_name=table_name,
-        old_values=None,
-        new_values=details_json,
+        record_id=record_id,
+        old_values=json.dumps(old_values) if old_values else None,
+        new_values=json.dumps(new_values) if new_values else None,
+        ip_address=request.client.host if request else None,
+        user_agent=request.headers.get("user-agent") if request else None,
         created_at=datetime.utcnow()
     )
     db.add(audit_log)
@@ -384,6 +382,7 @@ async def get_departments(
 @app.post("/departments", response_model=DepartmentResponse)
 async def create_department(
     dept_data: DepartmentCreate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user_id: int = Depends(RoleChecker(["admin", "hod"]))
 ):

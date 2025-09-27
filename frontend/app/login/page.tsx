@@ -28,13 +28,25 @@ export default function LoginPage() {
     setIsLoading(true)
 
     try {
+      console.log('Attempting login with:', username)
+      console.log('Current cookies before login:', document.cookie)
+      
       await login(username, password)
+      console.log('Login successful, user:', user)
+      console.log('Cookies after login:', document.cookie)
+      
       toast.success('Welcome back!')
       
-      // Redirect to intended page or dashboard
-      const redirectTo = searchParams.get('redirect') || '/dashboard'
-      router.push(redirectTo)
+      // Add a small delay to ensure cookies are set
+      setTimeout(() => {
+        console.log('Redirecting to dashboard...')
+        console.log('Final cookies before redirect:', document.cookie)
+        // Redirect to intended page or dashboard
+        const redirectTo = searchParams.get('redirect') || '/dashboard'
+        router.push(redirectTo)
+      }, 500)  // Increased delay to 500ms
     } catch (error: any) {
+      console.error('Login failed:', error)
       toast.error(error.message || 'Login failed')
     } finally {
       setIsLoading(false)
@@ -113,11 +125,8 @@ export default function LoginPage() {
           <div className="mt-6 text-center text-sm text-muted-foreground">
             <div className="space-y-1">
               <p><strong>Demo Credentials:</strong></p>
-              <p>Admin: admin / Admin123!</p>
-              <p>Admin2: admin2 / Admin123!</p>
-              <p>HOD: hod_cse / admin123</p>
-              <p>Teacher: teacher1 / admin123</p>
-              <p>Student: student1 / admin123</p>
+              <p>Admin: admin / admin</p>
+              <p><em>Note: Other user passwords need to be configured</em></p>
             </div>
           </div>
         </div>

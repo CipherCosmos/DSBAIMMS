@@ -1,13 +1,31 @@
-from fastapi import FastAPI, Depends, HTTPException, Query
+from fastapi import FastAPI, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 from typing import Optional, List
 from pydantic import BaseModel
+from datetime import datetime
 import json
 
 from shared.database import get_db
-from shared.models import User, Department, Class, Subject, TeacherSubject
+from shared.models import User, Department, Class, Subject, TeacherSubject, AuditLog
 from shared.schemas import UserCreate, UserUpdate, UserResponse, AdminUserCreate, HODUserCreate, RoleBasedFieldConfig
 from shared.auth import RoleChecker
+
+def log_audit(db: Session, user_id: int, action: str, table_name: str, record_id: int = None,
+              old_values: dict = None, new_values: dict = None, request: Request = None):
+    """Log audit trail"""
+    audit_log = AuditLog(
+        user_id=user_id,
+        action=action,
+        table_name=table_name,
+        record_id=record_id,
+        old_values=json.dumps(old_values) if old_values else None,
+        new_values=json.dumps(new_values) if new_values else None,
+        ip_address=request.client.host if request else None,
+        user_agent=request.headers.get("user-agent") if request else None,
+        created_at=datetime.utcnow()
+    )
+    db.add(audit_log)
+    db.commit()
 
 app = FastAPI(title="User Service", version="1.0.0")
 
@@ -304,6 +322,8 @@ async def get_users(
     department_id: Optional[int] = None,
     role: Optional[str] = None,
     search: Optional[str] = None,
+    is_active: Optional[bool] = None,
+    class_id: Optional[int] = None,
     db: Session = Depends(get_db),
     current_user_id: int = Depends(RoleChecker(["admin", "hod", "teacher"]))
 ):
@@ -332,11 +352,19 @@ async def get_users(
     if role:
         query = query.filter(User.role == role)
     
+    if is_active is not None:
+        query = query.filter(User.is_active == is_active)
+    
+    if class_id:
+        query = query.filter(User.class_id == class_id)
+    
     if search:
         query = query.filter(
             (User.full_name.ilike(f"%{search}%")) |
             (User.email.ilike(f"%{search}%")) |
-            (User.username.ilike(f"%{search}%"))
+            (User.username.ilike(f"%{search}%")) |
+            (User.student_id.ilike(f"%{search}%")) |
+            (User.employee_id.ilike(f"%{search}%"))
         )
     
     users = query.offset(skip).limit(limit).all()
@@ -407,7 +435,7 @@ async def get_user(
     
     return format_user_response(user, db)
 
-@app.get("/stats")
+@app.get("/api/users/stats")
 async def get_user_stats(
     db: Session = Depends(get_db),
     current_user_id: int = Depends(RoleChecker(["admin", "hod"]))
@@ -464,6 +492,7 @@ async def get_user_stats(
 @app.post("/api/users", response_model=UserResponse)
 async def create_user(
     user_data: UserCreate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user_id: int = Depends(RoleChecker(["admin", "hod"]))
 ):
@@ -728,6 +757,10 @@ async def update_user(
     
     db.commit()
     db.refresh(user)
+    
+    # Log audit
+    log_audit(db, current_user_id, "CREATE_USER", "users", user.id, 
+              new_values=user_data.dict(), request=request)
     
     return format_user_response(user, db)
 
@@ -1007,6 +1040,63 @@ async def export_users(
     
     else:
         raise HTTPException(status_code=400, detail="Unsupported format. Use 'csv' or 'pdf'")
+
+@app.post("/api/users/{user_id}/subjects")
+async def assign_subjects(
+    user_id: int,
+    subject_data: dict,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(RoleChecker(["admin", "hod"]))
+):
+    """Assign subjects to a user (teacher)"""
+    current_user = db.query(User).filter(User.id == current_user_id).first()
+    if not current_user:
+        raise HTTPException(status_code=404, detail="Current user not found")
+    
+    # Get target user
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Check permissions
+    if current_user.role == "hod" and current_user.department_id != user.department_id:
+        raise HTTPException(status_code=403, detail="Can only assign subjects to users in your department")
+    
+    # Only teachers can be assigned subjects
+    if user.role != "teacher":
+        raise HTTPException(status_code=400, detail="Only teachers can be assigned subjects")
+    
+    subject_ids = subject_data.get("subject_ids", [])
+    if not subject_ids:
+        raise HTTPException(status_code=400, detail="No subjects provided")
+    
+    # Validate subjects exist and belong to the same department
+    subjects = db.query(Subject).filter(Subject.id.in_(subject_ids)).all()
+    if len(subjects) != len(subject_ids):
+        raise HTTPException(status_code=400, detail="Some subjects not found")
+    
+    # Check department access
+    if current_user.role == "hod":
+        for subject in subjects:
+            if subject.department_id != current_user.department_id:
+                raise HTTPException(status_code=403, detail="Cannot assign subjects from other departments")
+    
+    # Clear existing assignments
+    db.query(TeacherSubject).filter(TeacherSubject.teacher_id == user_id).delete()
+    
+    # Add new assignments
+    for subject_id in subject_ids:
+        teacher_subject = TeacherSubject(
+            teacher_id=user_id,
+            subject_id=subject_id,
+            assigned_at=datetime.utcnow()
+        )
+        db.add(teacher_subject)
+    
+    db.commit()
+    
+    # Return updated user
+    return format_user_response(user, db)
 
 if __name__ == "__main__":
     import uvicorn

@@ -117,16 +117,16 @@ export default function NotificationsPage() {
       setError(null)
 
       const [notificationsResponse, departmentsResponse, classesResponse, usersResponse] = await Promise.all([
-        apiClient.get('/api/notifications'),
-        apiClient.get('/api/departments'),
-        apiClient.get('/api/classes'),
-        apiClient.get('/api/users')
+        apiClient.getNotifications(),
+        apiClient.getDepartments(),
+        apiClient.getClasses(),
+        apiClient.getUsers()
       ])
 
-      let notificationsData = notificationsResponse.data || []
-      const departmentsData = departmentsResponse.data || []
-      const classesData = classesResponse.data || []
-      const usersData = usersResponse.data || []
+      let notificationsData = notificationsResponse.success ? notificationsResponse.data || [] : []
+      const departmentsData = departmentsResponse.success ? departmentsResponse.data || [] : []
+      const classesData = classesResponse.success ? classesResponse.data || [] : []
+      const usersData = usersResponse.success ? usersResponse.data || [] : []
 
       // Apply filters
       if (filterType) {

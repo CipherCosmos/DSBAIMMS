@@ -147,3 +147,5 @@ export function HODDashboard() {
     </div>
   )
 }
+
+export default HODDashboard

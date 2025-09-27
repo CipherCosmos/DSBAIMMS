@@ -64,8 +64,10 @@ export default function MarksPage() {
   const loadMarks = async () => {
     try {
       setLoading(true)
-      const data = await apiClient.getMarks()
-      setMarks(Array.isArray(data) ? data : [])
+      const response = await apiClient.getMarks()
+      if (response.success) {
+        setMarks(Array.isArray(response.data) ? response.data : [])
+      }
     } catch (error) {
       console.error('Error loading marks:', error)
       toast.error('Failed to load marks')
@@ -76,8 +78,10 @@ export default function MarksPage() {
 
   const loadExams = async () => {
     try {
-      const data = await apiClient.getExams()
-      setExams(Array.isArray(data) ? data : [])
+      const response = await apiClient.getExams()
+      if (response.success) {
+        setExams(Array.isArray(response.data) ? response.data : [])
+      }
     } catch (error) {
       console.error('Error loading exams:', error)
       setExams([])
@@ -86,8 +90,10 @@ export default function MarksPage() {
 
   const loadStudents = async () => {
     try {
-      const data = await apiClient.getUsers()
-      setStudents(Array.isArray(data) ? data : [])
+      const response = await apiClient.getUsers()
+      if (response.success) {
+        setStudents(Array.isArray(response.data) ? response.data : [])
+      }
     } catch (error) {
       console.error('Error loading students:', error)
       setStudents([])
@@ -130,8 +136,8 @@ export default function MarksPage() {
     }
 
     try {
-      const blob = await apiClient.downloadMarksTemplate()
-      const url = window.URL.createObjectURL(blob)
+      const blob = await apiClient.downloadMarksTemplate(Number(selectedExam))
+      const url = window.URL.createObjectURL(blob.data)
       const a = document.createElement('a')
       a.href = url
       a.download = `marks_template_exam_${selectedExam}.xlsx`
@@ -151,7 +157,7 @@ export default function MarksPage() {
     }
 
     try {
-      const result = await apiClient.calculateCOAttainment()
+      const result = await apiClient.calculateCOAttainment(Number(selectedExam))
       toast.success('CO Attainment calculated successfully')
       console.log('CO Attainment:', result)
     } catch (error: any) {

@@ -101,32 +101,11 @@ export function BulkOperations() {
 
   const loadOperations = async () => {
     try {
-      // Mock data for now - replace with actual API call
-      const mockOperations: BulkOperation[] = [
-        {
-          id: '1',
-          type: 'users',
-          status: 'completed',
-          filename: 'students_batch_1.xlsx',
-          processedCount: 150,
-          errorCount: 3,
-          errors: ['Row 45: Invalid email format', 'Row 67: Duplicate username', 'Row 89: Missing department'],
-          createdAt: '2024-01-15T10:30:00Z'
-        },
-        {
-          id: '2',
-          type: 'marks',
-          status: 'processing',
-          filename: 'exam_marks_midterm.csv',
-          processedCount: 75,
-          errorCount: 0,
-          errors: [],
-          createdAt: '2024-01-15T11:15:00Z'
-        }
-      ]
-      setOperations(mockOperations)
+      const response = await apiClient.get('/api/bulk/operations')
+      setOperations(response.data || [])
     } catch (error) {
       console.error('Error loading operations:', error)
+      toast.error('Failed to load bulk operations')
     }
   }
 
@@ -169,9 +148,9 @@ export function BulkOperations() {
         }
       )
 
-      setValidationResult(validationResponse)
+      setValidationResult(validationResponse.data)
 
-      if (validationResponse.valid) {
+      if (validationResponse.data?.valid) {
         // Proceed with upload
         const uploadFormData = new FormData()
         uploadFormData.append('file', file)
@@ -186,12 +165,12 @@ export function BulkOperations() {
           }
         )
 
-        toast.success(`Successfully uploaded ${uploadResponse.processed_count} records`)
+        toast.success(`Successfully uploaded ${uploadResponse.data?.processed_count || 0} records`)
         loadOperations()
         setValidationResult(null)
         setSelectedType('')
       } else {
-        toast.error(`Validation failed: ${validationResponse.errors.join(', ')}`)
+        toast.error(`Validation failed: ${validationResponse.data?.errors?.join(', ') || 'Unknown error'}`)
       }
     } catch (error: any) {
       toast.error(error.message || 'Upload failed')

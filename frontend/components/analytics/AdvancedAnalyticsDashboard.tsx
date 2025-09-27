@@ -145,16 +145,16 @@ export function AdvancedAnalyticsDashboard() {
       ])
 
       if (insightsData.status === 'fulfilled') {
-        setPredictiveInsights(insightsData.value)
+        setPredictiveInsights(insightsData.value.data || [])
       }
       if (copoData.status === 'fulfilled') {
-        setCopoAnalytics(copoData.value)
+        setCopoAnalytics(copoData.value.data || [])
       }
       if (comparisonData.status === 'fulfilled') {
-        setCrossSemesterData(comparisonData.value)
+        setCrossSemesterData(comparisonData.value.data || [])
       }
       if (predictionsData.status === 'fulfilled') {
-        setPerformancePredictions(predictionsData.value)
+        setPerformancePredictions(predictionsData.value.data || [])
       }
     } catch (error) {
       console.error('Error loading analytics data:', error)
@@ -187,7 +187,7 @@ export function AdvancedAnalyticsDashboard() {
 
       wsRef.current.onclose = () => {
         setRealtimeEnabled(false)
-        toast.info('Real-time connection closed')
+        toast.success('Real-time connection closed')
       }
 
       wsRef.current.onerror = () => {
@@ -198,8 +198,8 @@ export function AdvancedAnalyticsDashboard() {
       // Fallback polling if WebSocket fails
       intervalRef.current = setInterval(async () => {
         try {
-          const statsResponse = await apiClient.get('/api/analytics/realtime-stats', { params })
-          setRealtimeStats(statsResponse)
+          const statsResponse = await apiClient.get('/api/analytics/realtime-stats', { params: {} })
+          setRealtimeStats(statsResponse.data)
         } catch (error) {
           console.error('Error fetching real-time stats:', error)
         }

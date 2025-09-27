@@ -101,8 +101,8 @@ export function COPOAnalytics() {
         apiClient.get('/api/departments'),
         apiClient.get('/api/semesters')
       ])
-      setDepartments(departmentsData)
-      setSemesters(semestersData)
+      setDepartments(departmentsData.data || [])
+      setSemesters(semestersData.data || [])
     } catch (error) {
       console.error('Error loading initial data:', error)
       toast.error('Failed to load departments and semesters')
@@ -119,7 +119,7 @@ export function COPOAnalytics() {
       if (selectedPO) params.po_id = selectedPO
 
       const response = await apiClient.get('/api/analytics/advanced-copo', { params })
-      setCopData(response)
+      setCopData(response.data || [])
     } catch (error) {
       console.error('Error loading CO/PO data:', error)
       toast.error('Failed to load CO/PO analytics')
@@ -533,7 +533,7 @@ function DetailedCOPOView({ data, onBack }: DetailedCOPOViewProps) {
 
         {/* Bloom's Taxonomy Distribution */}
         <div className="border rounded-lg p-4">
-          <h4 className="font-medium text-gray-900 mb-4">Bloom's Taxonomy Distribution</h4>
+          <h4 className="font-medium text-gray-900 mb-4">Bloom&apos;s Taxonomy Distribution</h4>
           <div className="space-y-2">
             {Object.entries(data.bloom_distribution).map(([level, count]) => (
               <div key={level} className="flex items-center justify-between">

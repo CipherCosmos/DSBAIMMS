@@ -1,33 +1,21 @@
 'use client'
 
-import { createContext, useContext, useState, useEffect, ReactNode } from 'react'
+import { createContext, useContext, useEffect, ReactNode } from 'react'
 import { useRouter } from 'next/navigation'
-import { apiClient } from '@/lib/api'
-import { getAccessToken, setAccessToken, setRefreshToken, clearAuthTokens } from '@/lib/cookies'
-
-interface User {
-  id: number
-  username: string
-  email: string
-  full_name: string
-  role: string
-  department_id?: number
-  class_id?: number
-  is_active: boolean
-}
+import { useAuthStore } from '@/lib/stores'
+import { getAccessToken, clearAuthTokens } from '@/lib/cookies'
 
 interface AuthContextType {
-  user: User | null
+  user: any
   isLoading: boolean
-  login: (_username: string, _password: string) => Promise<void>
+  login: (username: string, password: string) => Promise<void>
   logout: () => void
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
+  const { user, isAuthenticated, isLoading, getCurrentUser, setUser } = useAuthStore()
   const router = useRouter()
 
   useEffect(() => {
@@ -35,56 +23,45 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const token = getAccessToken()
       console.log('Initializing auth, token exists:', !!token)
       
-      if (token) {
+      if (token && !user) {
         try {
           console.log('Getting current user with token...')
-          const response = await apiClient.getCurrentUser()
-          console.log('Current user data received:', response.data)
-          setUser(response.data)
+          await getCurrentUser()
+          console.log('Current user data received:', user)
         } catch (error: any) {
           console.error('Failed to get current user:', error)
           // Only clear tokens if it's a 401 error (unauthorized)
-          // Other errors (network, 500, etc.) should not clear tokens
-          if (error.response?.status === 401) {
+          if (error?.status === 401) {
             console.log('401 error, clearing tokens')
             clearAuthTokens()
+            setUser(null)
           }
         }
       }
-      console.log('Auth initialization complete, setting loading to false')
-      setIsLoading(false)
+      console.log('Auth initialization complete')
     }
 
     initAuth()
-  }, [])
+  }, [getCurrentUser, setUser, user])
 
-  const login = async (_username: string, _password: string) => {
+  const login = async (username: string, password: string) => {
     try {
-      console.log('Attempting login for user:', _username)
-      const response = await apiClient.login(_username, _password)
-      console.log('Login successful, setting tokens and user data')
-      
-      // Set cookies with proper expiration
-      setAccessToken(response.data.access_token, 7)
-      setRefreshToken(response.data.refresh_token, 7)
-      
-      setUser(response.data.user)
-      console.log('User set in context:', response.data.user)
+      console.log('Attempting login for user:', username)
+      await useAuthStore.getState().login({ username, password })
+      console.log('Login successful')
     } catch (error: any) {
       console.error('Login failed:', error)
-      throw new Error(error.detail || 'Login failed')
+      throw new Error(error.message || 'Login failed')
     }
   }
 
   const logout = async () => {
     try {
-      await apiClient.logout()
+      await useAuthStore.getState().logout()
     } catch (error) {
       // Ignore logout errors
     } finally {
-      // Clear cookies
-      clearAuthTokens()
-      setUser(null)
+      // Backend will clear cookies automatically
       router.push('/login')
     }
   }

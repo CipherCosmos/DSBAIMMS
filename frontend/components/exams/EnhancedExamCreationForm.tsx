@@ -121,8 +121,8 @@ export function EnhancedExamCreationForm({ examId, onSave, onCancel }: EnhancedE
         apiClient.get('/api/subjects'),
         apiClient.get('/api/classes')
       ])
-      setSubjects(subjectsData)
-      setClasses(classesData)
+      setSubjects(subjectsData?.data || [])
+      setClasses(classesData?.data || [])
     } catch (error) {
       console.error('Error loading initial data:', error)
       toast.error('Failed to load initial data')
@@ -132,7 +132,7 @@ export function EnhancedExamCreationForm({ examId, onSave, onCancel }: EnhancedE
   const loadCOs = async (subjectId: number) => {
     try {
       const cosData = await apiClient.get(`/api/cos?subject_id=${subjectId}`)
-      setCos(cosData)
+      setCos(cosData.data || [])
     } catch (error) {
       console.error('Error loading COs:', error)
     }
@@ -926,7 +926,7 @@ function QuestionForm({ question, cos, bloomLevels, difficultyLevels, onSubmit, 
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Bloom's Level
+                  Bloom&apos;s Level
                 </label>
                 <select
                   value={formData.bloom_level}
