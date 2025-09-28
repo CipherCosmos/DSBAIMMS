@@ -143,8 +143,8 @@ If any changes are made to the codebase, the AI must automatically update all af
 
 4. **Scalability & Performance**
 
-   * Load balancing, async task queues (Kafka/RabbitMQ).
-   * Scalable to lakhs of users.
+   * Load balancing and caching with Redis.
+   * Scalable to thousands of users for single institution.
 
 5. **Security**
 

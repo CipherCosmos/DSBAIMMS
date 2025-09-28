@@ -96,7 +96,7 @@ async def login(login_data: LoginRequest, request: Request, response: Response, 
         httponly=False,  # Allow JavaScript access for middleware
         secure=False,  # Set to True in production with HTTPS
         samesite="lax",
-        domain="localhost",  # Set domain to localhost for cross-port access
+        domain=None,  # Don't set domain to allow cross-port access
         max_age=3600  # 1 hour
     )
     response.set_cookie(
@@ -105,7 +105,7 @@ async def login(login_data: LoginRequest, request: Request, response: Response, 
         httponly=True,  # Keep refresh token httponly for security
         secure=False,  # Set to True in production with HTTPS
         samesite="lax",
-        domain="localhost",  # Set domain to localhost for cross-port access
+        domain=None,  # Don't set domain to allow cross-port access
         max_age=604800  # 7 days
     )
 

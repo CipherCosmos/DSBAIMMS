@@ -46,5 +46,11 @@ export function setRefreshToken(token: string, days: number = 7): void {
 export function clearAuthTokens(): void {
   deleteCookie('access_token')
   deleteCookie('refresh_token')
+  
+  // Clear localStorage
+  if (typeof window !== 'undefined') {
+    localStorage.removeItem('auth-storage')
+    localStorage.removeItem('lms-theme')
+  }
 }
 

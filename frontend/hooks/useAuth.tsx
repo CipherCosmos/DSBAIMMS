@@ -23,26 +23,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const token = getAccessToken()
       console.log('Initializing auth, token exists:', !!token)
       
-      if (token && !user) {
+      // Always check token validity on app start
+      if (token) {
         try {
           console.log('Getting current user with token...')
           await getCurrentUser()
           console.log('Current user data received:', user)
         } catch (error: any) {
           console.error('Failed to get current user:', error)
-          // Only clear tokens if it's a 401 error (unauthorized)
-          if (error?.status === 401) {
-            console.log('401 error, clearing tokens')
-            clearAuthTokens()
-            setUser(null)
-          }
+          // Clear tokens and user data on any error
+          console.log('Auth error, clearing tokens and user data')
+          clearAuthTokens()
+          setUser(null)
         }
+      } else {
+        // No token, ensure user is not authenticated
+        setUser(null)
       }
       console.log('Auth initialization complete')
     }
 
     initAuth()
-  }, [getCurrentUser, setUser, user])
+  }, [getCurrentUser, setUser])
 
   const login = async (username: string, password: string) => {
     try {

@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { GraduationCap, Loader2 } from 'lucide-react'
 import { toast } from 'react-hot-toast'
 import { useAuth } from '@/hooks/useAuth'
+import { clearAuthTokens } from '@/lib/cookies'
 
 export default function LoginPage() {
   const [username, setUsername] = useState('')
@@ -32,8 +33,14 @@ export default function LoginPage() {
       console.log('Current cookies before login:', document.cookie)
       
       await login(username, password)
-      console.log('Login successful, user:', user)
-      console.log('Cookies after login:', document.cookie)
+            console.log('Login successful, user:', user)
+            console.log('Cookies after login:', document.cookie)
+            
+            // Check if tokens are stored
+            const accessToken = document.cookie.split('; ').find(row => row.startsWith('access_token='))?.split('=')[1]
+            const refreshToken = document.cookie.split('; ').find(row => row.startsWith('refresh_token='))?.split('=')[1]
+            console.log('Access token stored:', !!accessToken)
+            console.log('Refresh token stored:', !!refreshToken)
       
       toast.success('Welcome back!')
       
@@ -51,6 +58,12 @@ export default function LoginPage() {
     } finally {
       setIsLoading(false)
     }
+  }
+
+  const handleClearAuth = () => {
+    clearAuthTokens()
+    toast.success('Auth data cleared')
+    window.location.reload()
   }
 
   // Don't render if already authenticated
@@ -94,6 +107,7 @@ export default function LoginPage() {
                 onChange={(e) => setUsername(e.target.value)}
                 required
                 disabled={isLoading}
+                autoComplete="username"
                 className="w-full px-3 py-2 border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
               />
             </div>
@@ -109,6 +123,7 @@ export default function LoginPage() {
                 onChange={(e) => setPassword(e.target.value)}
                 required
                 disabled={isLoading}
+                autoComplete="current-password"
                 className="w-full px-3 py-2 border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
               />
             </div>
@@ -128,6 +143,13 @@ export default function LoginPage() {
               <p>Admin: admin / admin</p>
               <p><em>Note: Other user passwords need to be configured</em></p>
             </div>
+            <button
+              type="button"
+              onClick={handleClearAuth}
+              className="mt-4 px-3 py-1 text-xs bg-red-100 text-red-600 rounded hover:bg-red-200"
+            >
+              Clear Auth Data (Debug)
+            </button>
           </div>
         </div>
       </div>

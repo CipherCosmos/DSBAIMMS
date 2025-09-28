@@ -79,6 +79,8 @@ const roleBasedRoutes = {
   ]
 }
 
+import { isTokenValid } from '@/lib/utils/tokenValidation'
+
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
   
@@ -92,29 +94,29 @@ export function middleware(request: NextRequest) {
     const accessToken = request.cookies.get('access_token')?.value
     const refreshToken = request.cookies.get('refresh_token')?.value
     console.log('Middleware - Protected route:', pathname, 'Access token exists:', !!accessToken, 'Refresh token exists:', !!refreshToken)
-    console.log('Middleware - All cookies:', request.cookies.getAll().map(c => `${c.name}=${c.value.substring(0, 20)}...`))
     
-    if (!accessToken && !refreshToken) {
-      // Redirect to login if no tokens at all
-      console.log('Middleware - No tokens, redirecting to login')
+    // Check if access token is valid
+    const hasValidAccessToken = accessToken && isTokenValid(accessToken)
+    
+    if (!hasValidAccessToken) {
+      // No valid access token - redirect to login
+      console.log('Middleware - No valid access token, redirecting to login')
       const loginUrl = new URL('/login', request.url)
       loginUrl.searchParams.set('redirect', pathname)
       return NextResponse.redirect(loginUrl)
     }
     
-    if (!accessToken && refreshToken) {
-      // Access token expired but refresh token exists
-      // Let the frontend handle token refresh
-      console.log('Middleware - Access token expired, refresh token exists - allowing request')
-    }
+    console.log('Middleware - Valid access token found, allowing request')
   }
   
   // Allow login page for unauthenticated users
   if (pathname === '/login') {
     const accessToken = request.cookies.get('access_token')?.value
-    const refreshToken = request.cookies.get('refresh_token')?.value
-    if (accessToken || refreshToken) {
+    const hasValidAccessToken = accessToken && isTokenValid(accessToken)
+    
+    if (hasValidAccessToken) {
       // Redirect to dashboard if already authenticated
+      console.log('Middleware - Valid token found, redirecting to dashboard')
       return NextResponse.redirect(new URL('/dashboard', request.url))
     }
   }

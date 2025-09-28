@@ -712,6 +712,246 @@ async def export_classes(
     else:
         raise HTTPException(status_code=400, detail="Unsupported format. Use 'csv' or 'pdf'")
 
+# Bulk Operations
+@app.post("/api/classes/bulk-create")
+async def bulk_create_classes(
+    bulk_data: dict,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(RoleChecker(["admin", "hod"]))
+):
+    """Bulk create classes from uploaded data"""
+    current_user = db.query(User).filter(User.id == current_user_id).first()
+    if not current_user:
+        raise HTTPException(status_code=404, detail="Current user not found")
+    
+    classes_data = bulk_data.get("classes", [])
+    if not classes_data:
+        raise HTTPException(status_code=400, detail="No classes data provided")
+    
+    created_classes = []
+    errors = []
+    
+    for i, class_data in enumerate(classes_data):
+        try:
+            # Validate department access
+            if current_user.role == "hod" and class_data.get("department_id") != current_user.department_id:
+                errors.append(f"Row {i+1}: Access denied to department {class_data.get('department_id')}")
+                continue
+            
+            # Validate department exists
+            department = db.query(Department).filter(Department.id == class_data.get("department_id")).first()
+            if not department:
+                errors.append(f"Row {i+1}: Department not found")
+                continue
+            
+            # Validate semester exists
+            semester = db.query(Semester).filter(Semester.id == class_data.get("semester_id")).first()
+            if not semester:
+                errors.append(f"Row {i+1}: Semester not found")
+                continue
+            
+            # Validate class teacher if provided
+            if class_data.get("class_teacher_id"):
+                teacher = db.query(User).filter(
+                    User.id == class_data.get("class_teacher_id"),
+                    User.role == "teacher",
+                    User.department_id == class_data.get("department_id")
+                ).first()
+                if not teacher:
+                    errors.append(f"Row {i+1}: Invalid class teacher")
+                    continue
+            
+            # Validate CR if provided
+            if class_data.get("cr_id"):
+                cr = db.query(User).filter(
+                    User.id == class_data.get("cr_id"),
+                    User.role == "student",
+                    User.department_id == class_data.get("department_id")
+                ).first()
+                if not cr:
+                    errors.append(f"Row {i+1}: Invalid class representative")
+                    continue
+            
+            # Create class
+            new_class = Class(
+                name=class_data["name"],
+                section=class_data.get("section", ""),
+                department_id=class_data["department_id"],
+                semester_id=class_data["semester_id"],
+                class_teacher_id=class_data.get("class_teacher_id"),
+                cr_id=class_data.get("cr_id"),
+                max_students=class_data.get("max_students", 60),
+                description=class_data.get("description"),
+                created_at=datetime.utcnow()
+            )
+            
+            db.add(new_class)
+            db.commit()
+            db.refresh(new_class)
+            
+            created_classes.append({
+                "id": new_class.id,
+                "name": new_class.name,
+                "section": new_class.section,
+                "department_id": new_class.department_id,
+                "semester_id": new_class.semester_id
+            })
+            
+        except Exception as e:
+            errors.append(f"Row {i+1}: {str(e)}")
+            continue
+    
+    return {
+        "message": f"Created {len(created_classes)} classes successfully",
+        "created_classes": created_classes,
+        "errors": errors
+    }
+
+@app.post("/api/classes/bulk-update")
+async def bulk_update_classes(
+    bulk_data: dict,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(RoleChecker(["admin", "hod"]))
+):
+    """Bulk update classes"""
+    current_user = db.query(User).filter(User.id == current_user_id).first()
+    if not current_user:
+        raise HTTPException(status_code=404, detail="Current user not found")
+    
+    updates_data = bulk_data.get("updates", [])
+    if not updates_data:
+        raise HTTPException(status_code=400, detail="No updates data provided")
+    
+    updated_classes = []
+    errors = []
+    
+    for i, update_data in enumerate(updates_data):
+        try:
+            class_id = update_data.get("class_id")
+            if not class_id:
+                errors.append(f"Row {i+1}: Class ID is required")
+                continue
+            
+            # Get class
+            class_obj = db.query(Class).filter(Class.id == class_id).first()
+            if not class_obj:
+                errors.append(f"Row {i+1}: Class not found")
+                continue
+            
+            # Check permissions
+            if current_user.role == "hod" and class_obj.department_id != current_user.department_id:
+                errors.append(f"Row {i+1}: Access denied")
+                continue
+            
+            # Update fields
+            update_fields = update_data.get("fields", {})
+            for field, value in update_fields.items():
+                if hasattr(class_obj, field) and field not in ["id", "created_at"]:
+                    setattr(class_obj, field, value)
+            
+            class_obj.updated_at = datetime.utcnow()
+            db.commit()
+            
+            updated_classes.append({
+                "id": class_obj.id,
+                "name": class_obj.name,
+                "updated_fields": list(update_fields.keys())
+            })
+            
+        except Exception as e:
+            errors.append(f"Row {i+1}: {str(e)}")
+            continue
+    
+    return {
+        "message": f"Updated {len(updated_classes)} classes successfully",
+        "updated_classes": updated_classes,
+        "errors": errors
+    }
+
+@app.post("/api/classes/bulk-enroll-students")
+async def bulk_enroll_students(
+    enrollment_data: dict,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(RoleChecker(["admin", "hod"]))
+):
+    """Bulk enroll students to classes"""
+    current_user = db.query(User).filter(User.id == current_user_id).first()
+    if not current_user:
+        raise HTTPException(status_code=404, detail="Current user not found")
+    
+    class_id = enrollment_data.get("class_id")
+    student_ids = enrollment_data.get("student_ids", [])
+    
+    if not class_id or not student_ids:
+        raise HTTPException(status_code=400, detail="Class ID and student IDs are required")
+    
+    # Validate class exists and permissions
+    class_obj = db.query(Class).filter(Class.id == class_id).first()
+    if not class_obj:
+        raise HTTPException(status_code=404, detail="Class not found")
+    
+    if current_user.role == "hod" and class_obj.department_id != current_user.department_id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    enrolled_students = []
+    errors = []
+    
+    for student_id in student_ids:
+        try:
+            # Validate student exists and permissions
+            student = db.query(User).filter(
+                User.id == student_id,
+                User.role == "student",
+                User.department_id == class_obj.department_id
+            ).first()
+            
+            if not student:
+                errors.append(f"Student {student_id} not found or access denied")
+                continue
+            
+            # Check if already enrolled
+            if student.class_id == class_id:
+                errors.append(f"Student {student_id} already enrolled in this class")
+                continue
+            
+            # Enroll student
+            student.class_id = class_id
+            student.updated_at = datetime.utcnow()
+            
+            # Create semester enrollment if not exists
+            existing_enrollment = db.query(StudentSemesterEnrollment).filter(
+                StudentSemesterEnrollment.student_id == student_id,
+                StudentSemesterEnrollment.semester_id == class_obj.semester_id,
+                StudentSemesterEnrollment.status == "active"
+            ).first()
+            
+            if not existing_enrollment:
+                enrollment = StudentSemesterEnrollment(
+                    student_id=student_id,
+                    semester_id=class_obj.semester_id,
+                    enrollment_date=datetime.utcnow(),
+                    status="active"
+                )
+                db.add(enrollment)
+            
+            enrolled_students.append({
+                "student_id": student_id,
+                "student_name": f"{student.first_name} {student.last_name}",
+                "class_id": class_id
+            })
+            
+        except Exception as e:
+            errors.append(f"Student {student_id}: {str(e)}")
+            continue
+    
+    db.commit()
+    
+    return {
+        "message": f"Enrolled {len(enrolled_students)} students successfully",
+        "enrolled_students": enrolled_students,
+        "errors": errors
+    }
+
 # Health check
 @app.get("/health")
 async def health_check():

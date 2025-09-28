@@ -3,6 +3,7 @@ import { persist } from 'zustand/middleware'
 import { immer } from 'zustand/middleware/immer'
 import { authService } from '@/lib/services'
 import { setAccessToken, setRefreshToken, clearAuthTokens, getAccessToken, getRefreshToken } from '@/lib/cookies'
+import { isTokenValid } from '@/lib/utils/tokenValidation'
 import type { User, LoginCredentials } from '@/lib/services'
 
 export interface AuthState {
@@ -26,7 +27,7 @@ export const useAuthStore = create<AuthState>()(
     immer((set, get) => ({
       // Initial state
       user: null,
-      isAuthenticated: false,
+      isAuthenticated: false, // Will be determined by token validity
       isLoading: false,
       error: null,
 
@@ -41,9 +42,18 @@ export const useAuthStore = create<AuthState>()(
           const response = await authService.login(credentials)
           console.log('Auth store - Login response received:', response.data)
           
-          // Cookies are now set by the backend in the HTTP response
-          console.log('Auth store - Login successful, tokens received from backend')
-          console.log('Auth store - Backend should have set cookies automatically')
+          // Store tokens in cookies for persistence
+          if (response.data.access_token) {
+            setAccessToken(response.data.access_token)
+            console.log('Auth store - Access token stored in cookie')
+          }
+          if (response.data.refresh_token) {
+            setRefreshToken(response.data.refresh_token)
+            console.log('Auth store - Refresh token stored in cookie')
+          }
+          
+          console.log('Auth store - Login successful, tokens stored locally')
+          console.log('Auth store - Current cookies:', document.cookie)
           
           set((state) => {
             state.user = response.data.user
@@ -89,20 +99,13 @@ export const useAuthStore = create<AuthState>()(
         })
 
         try {
-          const response = await authService.getCurrentUser()
-          
-          set((state) => {
-            state.user = response.data
-            state.isAuthenticated = true
-            state.isLoading = false
-            state.error = null
-          })
-        } catch (error: any) {
-          // If 401 error and we have refresh token, try to refresh
-          if (error?.status === 401) {
+          // First check if we have a valid access token
+          const accessToken = getAccessToken()
+          if (!accessToken || !isTokenValid(accessToken)) {
+            console.log('Auth store - No valid access token, attempting refresh...')
+            
             const refreshToken = getRefreshToken()
-            if (refreshToken) {
-              console.log('Auth store - Attempting token refresh...')
+            if (refreshToken && isTokenValid(refreshToken)) {
               try {
                 await get().refreshToken()
                 // Retry getting current user after refresh
@@ -126,8 +129,29 @@ export const useAuthStore = create<AuthState>()(
                 })
                 throw refreshError
               }
+            } else {
+              // No valid tokens
+              clearAuthTokens()
+              set((state) => {
+                state.user = null
+                state.isAuthenticated = false
+                state.isLoading = false
+                state.error = 'No valid session. Please log in.'
+              })
+              throw new Error('No valid session. Please log in.')
             }
           }
+
+          const response = await authService.getCurrentUser()
+          
+          set((state) => {
+            state.user = response.data
+            state.isAuthenticated = true
+            state.isLoading = false
+            state.error = null
+          })
+        } catch (error: any) {
+          console.error('Auth store - getCurrentUser failed:', error)
           
           set((state) => {
             state.isLoading = false
@@ -141,15 +165,22 @@ export const useAuthStore = create<AuthState>()(
 
       refreshToken: async () => {
         const refreshToken = getRefreshToken()
-        if (!refreshToken) {
-          throw new Error('No refresh token available')
+        if (!refreshToken || !isTokenValid(refreshToken)) {
+          throw new Error('No valid refresh token available')
         }
 
         try {
           const response = await authService.refreshToken()
           console.log('Auth store - Token refresh successful')
           
-          // Backend sets new cookies automatically
+          // Store new tokens locally
+          if (response.data.access_token) {
+            setAccessToken(response.data.access_token)
+          }
+          if (response.data.refresh_token) {
+            setRefreshToken(response.data.refresh_token)
+          }
+          
           set((state) => {
             state.isAuthenticated = true
           })
@@ -182,7 +213,7 @@ export const useAuthStore = create<AuthState>()(
       name: 'auth-storage',
       partialize: (state) => ({
         user: state.user,
-        isAuthenticated: state.isAuthenticated,
+        // Don't persist isAuthenticated - it should be determined by token validity
       }),
     }
   )

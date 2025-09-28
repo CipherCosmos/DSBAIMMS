@@ -1098,6 +1098,282 @@ async def assign_subjects(
     # Return updated user
     return format_user_response(user, db)
 
+# Profile Management Endpoints
+@app.get("/api/users/profile")
+async def get_user_profile(
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(RoleChecker(["admin", "hod", "teacher", "student"]))
+):
+    """Get current user's profile"""
+    from sqlalchemy.orm import joinedload
+    
+    user = db.query(User).options(
+        joinedload(User.department),
+        joinedload(User.class_rel)
+    ).filter(User.id == current_user_id).first()
+    
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    return {
+        "id": user.id,
+        "username": user.username,
+        "email": user.email,
+        "first_name": user.first_name,
+        "last_name": user.last_name,
+        "phone": user.phone,
+        "address": user.address,
+        "role": user.role,
+        "department_id": user.department_id,
+        "department_name": user.department.name if user.department else None,
+        "class_id": user.class_id,
+        "class_name": user.class_rel.name if user.class_rel else None,
+        "student_id": user.student_id,
+        "employee_id": user.employee_id,
+        "date_of_birth": user.date_of_birth,
+        "gender": user.gender,
+        "qualification": user.qualification,
+        "experience_years": user.experience_years,
+        "specializations": user.specializations,
+        "profile_picture": user.profile_picture,
+        "is_active": user.is_active,
+        "created_at": user.created_at,
+        "updated_at": user.updated_at
+    }
+
+@app.put("/api/users/profile")
+async def update_user_profile(
+    profile_data: dict,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(RoleChecker(["admin", "hod", "teacher", "student"]))
+):
+    """Update current user's profile"""
+    user = db.query(User).filter(User.id == current_user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Store old values for audit
+    old_values = {
+        "first_name": user.first_name,
+        "last_name": user.last_name,
+        "phone": user.phone,
+        "address": user.address,
+        "date_of_birth": user.date_of_birth,
+        "gender": user.gender,
+        "qualification": user.qualification,
+        "experience_years": user.experience_years,
+        "specializations": user.specializations
+    }
+    
+    # Update allowed fields (users can't change role, department, etc.)
+    allowed_fields = ["first_name", "last_name", "phone", "address", "date_of_birth", "gender", "qualification", "experience_years", "specializations"]
+    
+    for field, value in profile_data.items():
+        if field in allowed_fields and hasattr(user, field):
+            setattr(user, field, value)
+    
+    user.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(user)
+    
+    # Log audit
+    log_audit(db, current_user_id, "UPDATE", "User", user.id, old_values, profile_data)
+    
+    return {"message": "Profile updated successfully", "user": user}
+
+@app.post("/api/users/profile/change-password")
+async def change_password(
+    password_data: dict,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(RoleChecker(["admin", "hod", "teacher", "student"]))
+):
+    """Change current user's password"""
+    from passlib.context import CryptContext
+    from shared.auth import verify_password
+    
+    current_password = password_data.get("current_password")
+    new_password = password_data.get("new_password")
+    
+    if not current_password or not new_password:
+        raise HTTPException(status_code=400, detail="Current password and new password are required")
+    
+    user = db.query(User).filter(User.id == current_user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Verify current password
+    if not verify_password(current_password, user.hashed_password):
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+    
+    # Hash new password
+    pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+    user.hashed_password = pwd_context.hash(new_password)
+    user.updated_at = datetime.utcnow()
+    
+    db.commit()
+    
+    # Log audit
+    log_audit(db, current_user_id, "UPDATE", "User", user.id, None, {"password_changed": True})
+    
+    return {"message": "Password changed successfully"}
+
+@app.post("/api/users/profile/upload-picture")
+async def upload_profile_picture(
+    file_data: dict,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(RoleChecker(["admin", "hod", "teacher", "student"]))
+):
+    """Upload profile picture"""
+    user = db.query(User).filter(User.id == current_user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Store old profile picture for audit
+    old_picture = user.profile_picture
+    
+    # Update profile picture (in real implementation, you'd save the file and store the path)
+    user.profile_picture = file_data.get("picture_url")  # Assuming file is already uploaded
+    user.updated_at = datetime.utcnow()
+    
+    db.commit()
+    
+    # Log audit
+    log_audit(db, current_user_id, "UPDATE", "User", user.id, {"profile_picture": old_picture}, {"profile_picture": user.profile_picture})
+    
+    return {"message": "Profile picture updated successfully", "profile_picture": user.profile_picture}
+
+# Student Promotion Functionality
+@app.post("/api/users/promote-students")
+async def promote_students(
+    promotion_data: dict,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(RoleChecker(["admin", "hod"]))
+):
+    """Promote students to next semester/class"""
+    from shared.models import StudentSemesterEnrollment, Semester, Class
+    
+    current_user = db.query(User).filter(User.id == current_user_id).first()
+    if not current_user:
+        raise HTTPException(status_code=404, detail="Current user not found")
+    
+    student_ids = promotion_data.get("student_ids", [])
+    target_semester_id = promotion_data.get("target_semester_id")
+    target_class_id = promotion_data.get("target_class_id")
+    
+    if not student_ids or not target_semester_id:
+        raise HTTPException(status_code=400, detail="Student IDs and target semester are required")
+    
+    # Validate target semester exists
+    target_semester = db.query(Semester).filter(Semester.id == target_semester_id).first()
+    if not target_semester:
+        raise HTTPException(status_code=404, detail="Target semester not found")
+    
+    # Validate target class if provided
+    if target_class_id:
+        target_class = db.query(Class).filter(Class.id == target_class_id).first()
+        if not target_class:
+            raise HTTPException(status_code=404, detail="Target class not found")
+    
+    promoted_students = []
+    
+    for student_id in student_ids:
+        # Check permissions for each student
+        student = db.query(User).filter(User.id == student_id, User.role == "student").first()
+        if not student:
+            continue
+            
+        if current_user.role == "hod" and current_user.department_id != student.department_id:
+            continue
+        
+        # Update student's class and semester enrollment
+        if target_class_id:
+            student.class_id = target_class_id
+        
+        # Create new semester enrollment
+        new_enrollment = StudentSemesterEnrollment(
+            student_id=student_id,
+            semester_id=target_semester_id,
+            enrollment_date=datetime.utcnow(),
+            status="active"
+        )
+        
+        db.add(new_enrollment)
+        promoted_students.append({
+            "student_id": student_id,
+            "student_name": f"{student.first_name} {student.last_name}",
+            "new_semester_id": target_semester_id,
+            "new_class_id": target_class_id
+        })
+    
+    db.commit()
+    
+    # Log audit
+    log_audit(db, current_user_id, "PROMOTE", "StudentSemesterEnrollment", None, None, {
+        "promoted_students": promoted_students,
+        "target_semester_id": target_semester_id,
+        "target_class_id": target_class_id
+    })
+    
+    return {
+        "message": f"Promoted {len(promoted_students)} students successfully",
+        "promoted_students": promoted_students
+    }
+
+@app.get("/api/users/promotion-candidates")
+async def get_promotion_candidates(
+    semester_id: Optional[int] = None,
+    department_id: Optional[int] = None,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(RoleChecker(["admin", "hod"]))
+):
+    """Get students eligible for promotion"""
+    from shared.models import StudentSemesterEnrollment, Semester, Class
+    
+    current_user = db.query(User).filter(User.id == current_user_id).first()
+    if not current_user:
+        raise HTTPException(status_code=404, detail="Current user not found")
+    
+    # Build query for students
+    query = db.query(User).filter(User.role == "student", User.is_active == True)
+    
+    # Apply department filter
+    if current_user.role == "hod":
+        query = query.filter(User.department_id == current_user.department_id)
+    elif department_id:
+        query = query.filter(User.department_id == department_id)
+    
+    students = query.all()
+    
+    candidates = []
+    for student in students:
+        # Get current semester enrollment
+        current_enrollment = db.query(StudentSemesterEnrollment).filter(
+            StudentSemesterEnrollment.student_id == student.id,
+            StudentSemesterEnrollment.status == "active"
+        ).first()
+        
+        if current_enrollment:
+            current_semester = db.query(Semester).filter(Semester.id == current_enrollment.semester_id).first()
+            current_class = db.query(Class).filter(Class.id == student.class_id).first()
+            
+            candidates.append({
+                "student_id": student.id,
+                "student_name": f"{student.first_name} {student.last_name}",
+                "student_id_number": student.student_id,
+                "current_semester_id": current_enrollment.semester_id,
+                "current_semester_name": current_semester.name if current_semester else None,
+                "current_class_id": student.class_id,
+                "current_class_name": current_class.name if current_class else None,
+                "department_id": student.department_id,
+                "department_name": student.department.name if student.department else None
+            })
+    
+    return {"candidates": candidates}
+
+@app.get("/health")
+async def health_check():
+    return {"status": "healthy", "service": "users"}
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8011)

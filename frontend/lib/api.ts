@@ -100,6 +100,14 @@ class ApiClient {
     return this.post('/api/auth/change-password', passwordData)
   }
 
+  async resetPassword(userId: number) {
+    return this.post(`/api/auth/reset-password/${userId}`)
+  }
+
+  async forgotPassword(email: string) {
+    return this.post('/api/auth/forgot-password', { email })
+  }
+
   // ==================== USER SERVICE ====================
   async getUsers(params?: any) {
     return this.get('/api/users', { params })
@@ -127,6 +135,49 @@ class ApiClient {
 
   async assignSubjects(userId: number, subjects: number[]) {
     return this.post(`/api/users/${userId}/subjects`, { subjects })
+  }
+
+  async bulkUpdateUsers(bulkData: any) {
+    return this.post('/api/users/bulk-update', bulkData)
+  }
+
+  async bulkDeleteUsers(bulkData: any) {
+    return this.post('/api/users/bulk-delete', bulkData)
+  }
+
+  // Profile Management
+  async getUserProfile() {
+    return this.get('/api/users/profile')
+  }
+
+  async updateUserProfile(profileData: any) {
+    return this.put('/api/users/profile', profileData)
+  }
+
+  async changeUserPassword(passwordData: { current_password: string; new_password: string }) {
+    return this.post('/api/users/profile/change-password', passwordData)
+  }
+
+  async uploadProfilePicture(fileData: any) {
+    return this.post('/api/users/profile/upload-picture', fileData)
+  }
+
+  // Student Promotion
+  async promoteStudents(promotionData: any) {
+    return this.post('/api/users/promote-students', promotionData)
+  }
+
+  async getPromotionCandidates(params?: any) {
+    return this.get('/api/users/promotion-candidates', { params })
+  }
+
+  // User Analytics
+  async getUserAnalytics(userId: number) {
+    return this.get(`/api/users/${userId}/analytics`)
+  }
+
+  async getUserPerformance(userId: number, params?: any) {
+    return this.get(`/api/users/${userId}/performance`, { params })
   }
 
   // ==================== DEPARTMENT SERVICE ====================
@@ -171,6 +222,19 @@ class ApiClient {
     return this.delete(`/api/classes/${classId}`)
   }
 
+  // Bulk Operations for Classes
+  async bulkCreateClasses(bulkData: any) {
+    return this.post('/api/classes/bulk-create', bulkData)
+  }
+
+  async bulkUpdateClasses(bulkData: any) {
+    return this.post('/api/classes/bulk-update', bulkData)
+  }
+
+  async bulkEnrollStudents(enrollmentData: any) {
+    return this.post('/api/classes/bulk-enroll-students', enrollmentData)
+  }
+
   async getClassStudents(classId: number, params?: any) {
     return this.get(`/api/classes/${classId}/students`, { params })
   }
@@ -204,6 +268,19 @@ class ApiClient {
     return this.get('/api/subjects/analytics', { params })
   }
 
+  // Bulk Operations for Subjects
+  async bulkCreateSubjects(bulkData: any) {
+    return this.post('/api/subjects/bulk-create', bulkData)
+  }
+
+  async bulkAssignTeachers(assignmentData: any) {
+    return this.post('/api/subjects/bulk-assign-teachers', assignmentData)
+  }
+
+  async bulkUpdateSubjects(bulkData: any) {
+    return this.post('/api/subjects/bulk-update', bulkData)
+  }
+
   // ==================== SEMESTERS SERVICE ====================
   async getSemesters(params?: any) {
     return this.get('/api/semesters', { params })
@@ -231,6 +308,23 @@ class ApiClient {
 
   async getSemesterAnalytics(semesterId: number) {
     return this.get(`/api/semesters/${semesterId}/analytics`)
+  }
+
+  // Bulk Operations for Semesters
+  async bulkCreateSemesters(bulkData: any) {
+    return this.post('/api/semesters/bulk-create', bulkData)
+  }
+
+  async bulkEnrollStudents(enrollmentData: any) {
+    return this.post('/api/semesters/bulk-enroll-students', enrollmentData)
+  }
+
+  async promoteStudents(promotionData: any) {
+    return this.post('/api/semesters/promote-students', promotionData)
+  }
+
+  async getSemesterPerformanceSummary(semesterId: number) {
+    return this.get(`/api/semesters/performance-summary?semester_id=${semesterId}`)
   }
 
   // ==================== PROFILE SERVICE ====================
@@ -289,6 +383,19 @@ class ApiClient {
     return this.delete(`/api/exams/${examId}`)
   }
 
+  // Bulk Operations for Exams
+  async bulkCreateQuestions(bulkData: any) {
+    return this.post('/api/exams/bulk-create-questions', bulkData)
+  }
+
+  async bulkCreateExams(bulkData: any) {
+    return this.post('/api/exams/bulk-create-exams', bulkData)
+  }
+
+  async bulkUploadMarks(bulkData: any) {
+    return this.post('/api/exams/bulk-upload-marks', bulkData)
+  }
+
   async getExamAnalytics(examId: number) {
     return this.get(`/api/exams/${examId}/analytics`)
   }
@@ -339,6 +446,23 @@ class ApiClient {
     return this.get(`/api/marks/exam/${examId}/summary`)
   }
 
+  // Enhanced Marks Analytics
+  async getGradeDistribution(params?: any) {
+    return this.get('/api/marks/grade-distribution', { params })
+  }
+
+  async getPerformanceTrends(params?: any) {
+    return this.get('/api/marks/performance-trends', { params })
+  }
+
+  async getClassRankings(classId: number, params?: any) {
+    return this.get(`/api/marks/class-rankings?class_id=${classId}`, { params })
+  }
+
+  async getSubjectAnalytics(subjectId: number, params?: any) {
+    return this.get(`/api/marks/subject-analytics?subject_id=${subjectId}`, { params })
+  }
+
   async getStudentPerformance(studentId: number, params?: any) {
     return this.get(`/api/marks/student/${studentId}/performance`, { params })
   }
@@ -370,6 +494,40 @@ class ApiClient {
 
   async getCOPOPerformance(params?: any) {
     return this.get('/api/analytics/co-po', { params })
+  }
+
+  // Enhanced Analytics Endpoints
+  async getPerformanceAnalytics(params?: any) {
+    return this.get('/api/analytics/performance', { params })
+  }
+
+  async getStudentAnalytics(studentId: number) {
+    return this.get(`/api/analytics/students/${studentId}`)
+  }
+
+  async getTeacherAnalytics(teacherId: number) {
+    return this.get(`/api/analytics/teachers/${teacherId}`)
+  }
+
+  async getDepartmentAnalytics(departmentId: number) {
+    return this.get(`/api/analytics/departments/${departmentId}`)
+  }
+
+  // Export Functionality
+  async exportUsers(format: string = 'csv', params?: any) {
+    return this.get(`/api/analytics/export/users?format=${format}`, { params })
+  }
+
+  async exportStudents(format: string = 'csv', params?: any) {
+    return this.get(`/api/analytics/export/students?format=${format}`, { params })
+  }
+
+  async exportExams(format: string = 'csv', params?: any) {
+    return this.get(`/api/analytics/export/exams?format=${format}`, { params })
+  }
+
+  async exportMarks(format: string = 'csv', params?: any) {
+    return this.get(`/api/analytics/export/marks?format=${format}`, { params })
   }
 
   // ==================== CO/PO SERVICE ====================

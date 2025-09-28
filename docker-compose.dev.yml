@@ -1,3 +1,5 @@
+
+version: "3.8"
 services:
   # Databases
   postgres:
@@ -19,29 +21,6 @@ services:
     volumes:
       - redis_data:/data
 
-  # Message Queue
-  kafka:
-    image: wurstmeister/kafka:2.13-2.8.1
-    ports:
-      - "9092:9092"
-    environment:
-      KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
-    depends_on:
-      - zookeeper
-
-  zookeeper:
-    image: confluentinc/cp-zookeeper:7.4.0
-    ports:
-      - "2181:2181"
-    environment:
-      ZOOKEEPER_CLIENT_PORT: 2181
-      ZOOKEEPER_TICK_TIME: 2000
-
   # API Gateway
   kong:
     image: kong:3.4
@@ -59,251 +38,176 @@ services:
     volumes:
       - ./kong/kong.yml:/kong/kong.yml
 
-  # Microservices with volume mounting for development
+  # Core Microservices
   auth-service:
     build:
       context: .
       dockerfile: services/auth/Dockerfile
+    image: 067969189483.dkr.ecr.ap-south-1.amazonaws.com/auth-service:latest
     ports:
       - "8010:8010"
     environment:
       DATABASE_URL: postgresql://lms_user:lms_password@postgres:5432/lms_db
       REDIS_URL: redis://redis:6379
       JWT_SECRET: your-super-secret-jwt-key-change-in-production
-    volumes:
-      - ./services/auth:/app
-      - ./shared:/app/shared
     depends_on:
       - postgres
       - redis
-    command: uvicorn main:app --host 0.0.0.0 --port 8010 --reload
 
   user-service:
     build:
       context: .
       dockerfile: services/users/Dockerfile
+    image: 067969189483.dkr.ecr.ap-south-1.amazonaws.com/user-service:latest
     ports:
       - "8011:8011"
     environment:
       DATABASE_URL: postgresql://lms_user:lms_password@postgres:5432/lms_db
       REDIS_URL: redis://redis:6379
-      JWT_SECRET: your-super-secret-jwt-key-change-in-production
-    volumes:
-      - ./services/users:/app
-      - ./shared:/app/shared
     depends_on:
       - postgres
       - redis
-    command: uvicorn main:app --host 0.0.0.0 --port 8011 --reload
 
   department-service:
     build:
       context: .
       dockerfile: services/departments/Dockerfile
+    image: 067969189483.dkr.ecr.ap-south-1.amazonaws.com/department-service:latest
     ports:
       - "8012:8012"
     environment:
       DATABASE_URL: postgresql://lms_user:lms_password@postgres:5432/lms_db
       REDIS_URL: redis://redis:6379
-      JWT_SECRET: your-super-secret-jwt-key-change-in-production
-    volumes:
-      - ./services/departments:/app
-      - ./shared:/app/shared
     depends_on:
       - postgres
       - redis
-    command: uvicorn main:app --host 0.0.0.0 --port 8012 --reload
 
-  exam-service:
+  classes-service:
+    build:
+      context: .
+      dockerfile: services/classes/Dockerfile
+    image: 067969189483.dkr.ecr.ap-south-1.amazonaws.com/classes-service:latest
+    ports:
+      - "8004:8004"
+    environment:
+      DATABASE_URL: postgresql://lms_user:lms_password@postgres:5432/lms_db
+      REDIS_URL: redis://redis:6379
+      SERVICE_PORT: 8004
+    depends_on:
+      - postgres
+      - redis
+
+  subjects-service:
+    build:
+      context: .
+      dockerfile: services/subjects/Dockerfile
+    image: 067969189483.dkr.ecr.ap-south-1.amazonaws.com/subjects-service:latest
+    ports:
+      - "8005:8005"
+    environment:
+      DATABASE_URL: postgresql://lms_user:lms_password@postgres:5432/lms_db
+      REDIS_URL: redis://redis:6379
+      SERVICE_PORT: 8005
+    depends_on:
+      - postgres
+      - redis
+
+  semesters-service:
+    build:
+      context: .
+      dockerfile: services/semesters/Dockerfile
+    image: 067969189483.dkr.ecr.ap-south-1.amazonaws.com/semesters-service:latest
+    ports:
+      - "8006:8006"
+    environment:
+      DATABASE_URL: postgresql://lms_user:lms_password@postgres:5432/lms_db
+      REDIS_URL: redis://redis:6379
+      SERVICE_PORT: 8006
+    depends_on:
+      - postgres
+      - redis
+
+  exams-service:
     build:
       context: .
       dockerfile: services/exams/Dockerfile
+    image: 067969189483.dkr.ecr.ap-south-1.amazonaws.com/exams-service:latest
     ports:
       - "8013:8013"
     environment:
       DATABASE_URL: postgresql://lms_user:lms_password@postgres:5432/lms_db
       REDIS_URL: redis://redis:6379
-      KAFKA_URL: kafka:9092
-      JWT_SECRET: your-super-secret-jwt-key-change-in-production
-    volumes:
-      - ./services/exams:/app
-      - ./shared:/app/shared
     depends_on:
       - postgres
       - redis
-      - kafka
-    command: uvicorn main:app --host 0.0.0.0 --port 8013 --reload
 
   marks-service:
     build:
       context: .
       dockerfile: services/marks/Dockerfile
+    image: 067969189483.dkr.ecr.ap-south-1.amazonaws.com/marks-service:latest
     ports:
       - "8014:8014"
     environment:
       DATABASE_URL: postgresql://lms_user:lms_password@postgres:5432/lms_db
       REDIS_URL: redis://redis:6379
-      KAFKA_URL: kafka:9092
-      JWT_SECRET: your-super-secret-jwt-key-change-in-production
-    volumes:
-      - ./services/marks:/app
-      - ./shared:/app/shared
     depends_on:
       - postgres
       - redis
-      - kafka
-    command: uvicorn main:app --host 0.0.0.0 --port 8014 --reload
 
   analytics-service:
     build:
       context: .
       dockerfile: services/analytics/Dockerfile
+    image: 067969189483.dkr.ecr.ap-south-1.amazonaws.com/analytics-service:latest
     ports:
       - "8015:8015"
     environment:
       DATABASE_URL: postgresql://lms_user:lms_password@postgres:5432/lms_db
       REDIS_URL: redis://redis:6379
-      JWT_SECRET: your-super-secret-jwt-key-change-in-production
-      KAFKA_URL: kafka:9092
-    volumes:
-      - ./services/analytics:/app
-      - ./shared:/app/shared
     depends_on:
       - postgres
       - redis
-      - kafka
-    command: uvicorn main:app --host 0.0.0.0 --port 8015 --reload
-
-  bulk-service:
-    build:
-      context: .
-      dockerfile: services/bulk/Dockerfile
-    ports:
-      - "8016:8016"
-    environment:
-      DATABASE_URL: postgresql://lms_user:lms_password@postgres:5432/lms_db
-      REDIS_URL: redis://redis:6379
-      JWT_SECRET: your-super-secret-jwt-key-change-in-production
-    volumes:
-      - ./services/bulk:/app
-      - ./shared:/app/shared
-    depends_on:
-      - postgres
-      - redis
-    command: uvicorn main:app --host 0.0.0.0 --port 8016 --reload
-
-  export-service:
-    build:
-      context: .
-      dockerfile: services/exports/Dockerfile
-    ports:
-      - "8017:8017"
-    environment:
-      DATABASE_URL: postgresql://lms_user:lms_password@postgres:5432/lms_db
-      REDIS_URL: redis://redis:6379
-      JWT_SECRET: your-super-secret-jwt-key-change-in-production
-    volumes:
-      - ./services/exports:/app
-      - ./shared:/app/shared
-    depends_on:
-      - postgres
-      - redis
-    command: uvicorn main:app --host 0.0.0.0 --port 8017 --reload
 
   notification-service:
     build:
       context: .
       dockerfile: services/notifications/Dockerfile
+    image: 067969189483.dkr.ecr.ap-south-1.amazonaws.com/notification-service:latest
     ports:
       - "8018:8018"
     environment:
       DATABASE_URL: postgresql://lms_user:lms_password@postgres:5432/lms_db
       REDIS_URL: redis://redis:6379
-      JWT_SECRET: your-super-secret-jwt-key-change-in-production
-    volumes:
-      - ./services/notifications:/app
-      - ./shared:/app/shared
     depends_on:
       - postgres
       - redis
-    command: uvicorn main:app --host 0.0.0.0 --port 8018 --reload
 
-  file-service:
+  copo-service:
     build:
       context: .
-      dockerfile: services/files/Dockerfile
+      dockerfile: services/copo/Dockerfile
+    image: 067969189483.dkr.ecr.ap-south-1.amazonaws.com/copo-service:latest
     ports:
-      - "8019:8019"
+      - "8026:8026"
     environment:
       DATABASE_URL: postgresql://lms_user:lms_password@postgres:5432/lms_db
       REDIS_URL: redis://redis:6379
-      JWT_SECRET: your-super-secret-jwt-key-change-in-production
-    volumes:
-      - ./services/files:/app
-      - ./shared:/app/shared
-      - ./uploads:/app/uploads
     depends_on:
       - postgres
       - redis
-    command: uvicorn main:app --host 0.0.0.0 --port 8019 --reload
 
-  questionbank-service:
-    build:
-      context: .
-      dockerfile: services/questionbank/Dockerfile
-    ports:
-      - "8020:8020"
-    environment:
-      DATABASE_URL: postgresql://lms_user:lms_password@postgres:5432/lms_db
-      REDIS_URL: redis://redis:6379
-      JWT_SECRET: your-super-secret-jwt-key-change-in-production
-    volumes:
-      - ./services/questionbank:/app
-      - ./shared:/app/shared
-    depends_on:
-      - postgres
-      - redis
-    command: uvicorn main:app --host 0.0.0.0 --port 8020 --reload
-
-  monitoring-service:
-    build:
-      context: .
-      dockerfile: services/monitoring/Dockerfile
-    ports:
-      - "8021:8021"
-    environment:
-      DATABASE_URL: postgresql://lms_user:lms_password@postgres:5432/lms_db
-      REDIS_URL: redis://redis:6379
-      JWT_SECRET: your-super-secret-jwt-key-change-in-production
-    volumes:
-      - ./services/monitoring:/app
-      - ./shared:/app/shared
-      - ./backups:/app/backups
-    depends_on:
-      - postgres
-      - redis
-    command: uvicorn main:app --host 0.0.0.0 --port 8021 --reload
-
-  # Frontend with volume mounting for development
+  # Frontend
   frontend:
     build: ./frontend
+    image: 067969189483.dkr.ecr.ap-south-1.amazonaws.com/frontend:latest
     ports:
       - "3000:3000"
     environment:
       NEXT_PUBLIC_API_URL: http://localhost:8000
-      WATCHPACK_POLLING: true
-      CHOKIDAR_USEPOLLING: true
-    volumes:
-      - ./frontend:/app
-      - /app/node_modules
-      - /app/.next
     depends_on:
       - kong
-    command: npm run dev
-    stdin_open: true
-    tty: true
 
 volumes:
   postgres_data:
   redis_data:
-

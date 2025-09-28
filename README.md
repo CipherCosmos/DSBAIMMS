@@ -23,7 +23,6 @@ A comprehensive Learning Management System built with microservices architecture
 ### Databases & Storage
 - **PostgreSQL**: Primary database with comprehensive schema
 - **Redis**: Caching & session management
-- **Kafka**: Event streaming for analytics
 
 ## 🚀 Features
 
@@ -69,7 +68,7 @@ cd lms-system
 npm run dev
 
 # Or start services individually
-docker-compose up postgres redis kafka zookeeper
+docker-compose up postgres redis
 docker-compose up auth-service user-service department-service
 ```
 
@@ -142,7 +141,6 @@ Create `.env` files for each service:
 DATABASE_URL=postgresql://user:password@host:5432/dbname
 REDIS_URL=redis://host:6379
 JWT_SECRET=your-production-secret
-KAFKA_URL=kafka:9092
 ```
 
 ### Kubernetes Deployment
@@ -158,7 +156,7 @@ kubectl apply -f k8s/
 - Each microservice can be scaled independently
 - Database connection pooling configured
 - Redis clustering for high availability
-- Kafka partitioning for high throughput
+- Redis caching for high performance
 
 ## 📚 API Documentation
 

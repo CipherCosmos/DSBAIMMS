@@ -687,6 +687,267 @@ async def export_subjects(
     else:
         raise HTTPException(status_code=400, detail="Unsupported format. Use 'csv' or 'pdf'")
 
+# Bulk Operations
+@app.post("/api/subjects/bulk-create")
+async def bulk_create_subjects(
+    bulk_data: dict,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(RoleChecker(["admin", "hod"]))
+):
+    """Bulk create subjects from uploaded data"""
+    current_user = db.query(User).filter(User.id == current_user_id).first()
+    if not current_user:
+        raise HTTPException(status_code=404, detail="Current user not found")
+    
+    subjects_data = bulk_data.get("subjects", [])
+    if not subjects_data:
+        raise HTTPException(status_code=400, detail="No subjects data provided")
+    
+    created_subjects = []
+    errors = []
+    
+    for i, subject_data in enumerate(subjects_data):
+        try:
+            # Validate department access
+            if current_user.role == "hod" and subject_data.get("department_id") != current_user.department_id:
+                errors.append(f"Row {i+1}: Access denied to department {subject_data.get('department_id')}")
+                continue
+            
+            # Validate department exists
+            department = db.query(Department).filter(Department.id == subject_data.get("department_id")).first()
+            if not department:
+                errors.append(f"Row {i+1}: Department not found")
+                continue
+            
+            # Validate semester exists
+            semester = db.query(Semester).filter(Semester.id == subject_data.get("semester_id")).first()
+            if not semester:
+                errors.append(f"Row {i+1}: Semester not found")
+                continue
+            
+            # Validate class exists
+            class_obj = db.query(Class).filter(Class.id == subject_data.get("class_id")).first()
+            if not class_obj:
+                errors.append(f"Row {i+1}: Class not found")
+                continue
+            
+            # Validate teacher if provided
+            if subject_data.get("teacher_id"):
+                teacher = db.query(User).filter(
+                    User.id == subject_data.get("teacher_id"),
+                    User.role == "teacher",
+                    User.department_id == subject_data.get("department_id")
+                ).first()
+                if not teacher:
+                    errors.append(f"Row {i+1}: Invalid teacher")
+                    continue
+            
+            # Check if subject code already exists
+            existing_subject = db.query(Subject).filter(
+                Subject.code == subject_data["code"],
+                Subject.department_id == subject_data["department_id"]
+            ).first()
+            if existing_subject:
+                errors.append(f"Row {i+1}: Subject code already exists")
+                continue
+            
+            # Create subject
+            new_subject = Subject(
+                name=subject_data["name"],
+                code=subject_data["code"],
+                department_id=subject_data["department_id"],
+                semester_id=subject_data["semester_id"],
+                class_id=subject_data["class_id"],
+                teacher_id=subject_data.get("teacher_id"),
+                credits=subject_data.get("credits", 3),
+                description=subject_data.get("description"),
+                objectives=subject_data.get("objectives"),
+                created_at=datetime.utcnow()
+            )
+            
+            db.add(new_subject)
+            db.commit()
+            db.refresh(new_subject)
+            
+            # Create teacher-subject mapping if teacher is assigned
+            if new_subject.teacher_id:
+                teacher_subject = TeacherSubject(
+                    teacher_id=new_subject.teacher_id,
+                    subject_id=new_subject.id,
+                    assigned_at=datetime.utcnow()
+                )
+                db.add(teacher_subject)
+                db.commit()
+            
+            created_subjects.append({
+                "id": new_subject.id,
+                "name": new_subject.name,
+                "code": new_subject.code,
+                "department_id": new_subject.department_id,
+                "semester_id": new_subject.semester_id,
+                "class_id": new_subject.class_id,
+                "teacher_id": new_subject.teacher_id
+            })
+            
+        except Exception as e:
+            errors.append(f"Row {i+1}: {str(e)}")
+            continue
+    
+    return {
+        "message": f"Created {len(created_subjects)} subjects successfully",
+        "created_subjects": created_subjects,
+        "errors": errors
+    }
+
+@app.post("/api/subjects/bulk-assign-teachers")
+async def bulk_assign_teachers(
+    assignment_data: dict,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(RoleChecker(["admin", "hod"]))
+):
+    """Bulk assign teachers to subjects"""
+    current_user = db.query(User).filter(User.id == current_user_id).first()
+    if not current_user:
+        raise HTTPException(status_code=404, detail="Current user not found")
+    
+    assignments = assignment_data.get("assignments", [])
+    if not assignments:
+        raise HTTPException(status_code=400, detail="No assignments data provided")
+    
+    assigned_subjects = []
+    errors = []
+    
+    for i, assignment in enumerate(assignments):
+        try:
+            subject_id = assignment.get("subject_id")
+            teacher_id = assignment.get("teacher_id")
+            
+            if not subject_id or not teacher_id:
+                errors.append(f"Row {i+1}: Subject ID and Teacher ID are required")
+                continue
+            
+            # Validate subject exists and permissions
+            subject = db.query(Subject).filter(Subject.id == subject_id).first()
+            if not subject:
+                errors.append(f"Row {i+1}: Subject not found")
+                continue
+            
+            if current_user.role == "hod" and subject.department_id != current_user.department_id:
+                errors.append(f"Row {i+1}: Access denied to subject")
+                continue
+            
+            # Validate teacher exists and permissions
+            teacher = db.query(User).filter(
+                User.id == teacher_id,
+                User.role == "teacher",
+                User.department_id == subject.department_id
+            ).first()
+            if not teacher:
+                errors.append(f"Row {i+1}: Invalid teacher")
+                continue
+            
+            # Check if assignment already exists
+            existing_assignment = db.query(TeacherSubject).filter(
+                TeacherSubject.teacher_id == teacher_id,
+                TeacherSubject.subject_id == subject_id
+            ).first()
+            
+            if existing_assignment:
+                errors.append(f"Row {i+1}: Teacher already assigned to this subject")
+                continue
+            
+            # Assign teacher to subject
+            subject.teacher_id = teacher_id
+            subject.updated_at = datetime.utcnow()
+            
+            # Create teacher-subject mapping
+            teacher_subject = TeacherSubject(
+                teacher_id=teacher_id,
+                subject_id=subject_id,
+                assigned_at=datetime.utcnow()
+            )
+            db.add(teacher_subject)
+            db.commit()
+            
+            assigned_subjects.append({
+                "subject_id": subject_id,
+                "subject_name": subject.name,
+                "teacher_id": teacher_id,
+                "teacher_name": f"{teacher.first_name} {teacher.last_name}"
+            })
+            
+        except Exception as e:
+            errors.append(f"Row {i+1}: {str(e)}")
+            continue
+    
+    return {
+        "message": f"Assigned {len(assigned_subjects)} subjects successfully",
+        "assigned_subjects": assigned_subjects,
+        "errors": errors
+    }
+
+@app.post("/api/subjects/bulk-update")
+async def bulk_update_subjects(
+    bulk_data: dict,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(RoleChecker(["admin", "hod"]))
+):
+    """Bulk update subjects"""
+    current_user = db.query(User).filter(User.id == current_user_id).first()
+    if not current_user:
+        raise HTTPException(status_code=404, detail="Current user not found")
+    
+    updates_data = bulk_data.get("updates", [])
+    if not updates_data:
+        raise HTTPException(status_code=400, detail="No updates data provided")
+    
+    updated_subjects = []
+    errors = []
+    
+    for i, update_data in enumerate(updates_data):
+        try:
+            subject_id = update_data.get("subject_id")
+            if not subject_id:
+                errors.append(f"Row {i+1}: Subject ID is required")
+                continue
+            
+            # Get subject
+            subject = db.query(Subject).filter(Subject.id == subject_id).first()
+            if not subject:
+                errors.append(f"Row {i+1}: Subject not found")
+                continue
+            
+            # Check permissions
+            if current_user.role == "hod" and subject.department_id != current_user.department_id:
+                errors.append(f"Row {i+1}: Access denied")
+                continue
+            
+            # Update fields
+            update_fields = update_data.get("fields", {})
+            for field, value in update_fields.items():
+                if hasattr(subject, field) and field not in ["id", "created_at"]:
+                    setattr(subject, field, value)
+            
+            subject.updated_at = datetime.utcnow()
+            db.commit()
+            
+            updated_subjects.append({
+                "id": subject.id,
+                "name": subject.name,
+                "code": subject.code,
+                "updated_fields": list(update_fields.keys())
+            })
+            
+        except Exception as e:
+            errors.append(f"Row {i+1}: {str(e)}")
+            continue
+    
+    return {
+        "message": f"Updated {len(updated_subjects)} subjects successfully",
+        "updated_subjects": updated_subjects,
+        "errors": errors
+    }
+
 # Health check
 @app.get("/health")
 async def health_check():

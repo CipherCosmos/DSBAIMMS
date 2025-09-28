@@ -525,6 +525,351 @@ async def get_marks_analytics(
         "difficulty_analysis": {}  # Would need question difficulty data
     }
 
+# Enhanced Grade Calculation and Analytics
+@app.get("/api/marks/grade-distribution")
+async def get_grade_distribution(
+    exam_id: Optional[int] = None,
+    subject_id: Optional[int] = None,
+    class_id: Optional[int] = None,
+    semester_id: Optional[int] = None,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(RoleChecker(["admin", "hod", "teacher"]))
+):
+    """Get grade distribution analytics"""
+    try:
+        current_user = db.query(User).filter(User.id == current_user_id).first()
+        if not current_user:
+            raise HTTPException(status_code=404, detail="Current user not found")
+        
+        # Build query with role-based filtering
+        query = db.query(Mark)
+        
+        if current_user.role == "hod":
+            query = query.join(Exam).join(Subject).filter(Subject.department_id == current_user.department_id)
+        elif current_user.role == "teacher":
+            query = query.join(Exam).filter(Exam.created_by == current_user_id)
+        
+        if exam_id:
+            query = query.filter(Mark.exam_id == exam_id)
+        if subject_id:
+            query = query.join(Exam).filter(Exam.subject_id == subject_id)
+        if class_id:
+            query = query.join(Exam).filter(Exam.class_id == class_id)
+        if semester_id:
+            query = query.join(Exam).join(Subject).filter(Subject.semester_id == semester_id)
+        
+        marks = query.all()
+        
+        # Calculate grade distribution
+        grade_distribution = {"A+": 0, "A": 0, "B+": 0, "B": 0, "C": 0, "D": 0, "F": 0}
+        total_students = len(marks)
+        
+        for mark in marks:
+            percentage = (float(mark.marks_obtained) / float(mark.max_marks) * 100) if mark.max_marks > 0 else 0
+            
+            if percentage >= 90:
+                grade_distribution["A+"] += 1
+            elif percentage >= 80:
+                grade_distribution["A"] += 1
+            elif percentage >= 70:
+                grade_distribution["B+"] += 1
+            elif percentage >= 60:
+                grade_distribution["B"] += 1
+            elif percentage >= 50:
+                grade_distribution["C"] += 1
+            elif percentage >= 40:
+                grade_distribution["D"] += 1
+            else:
+                grade_distribution["F"] += 1
+        
+        # Calculate percentages
+        grade_percentages = {}
+        for grade, count in grade_distribution.items():
+            grade_percentages[grade] = round((count / total_students * 100), 2) if total_students > 0 else 0
+        
+        return {
+            "total_students": total_students,
+            "grade_distribution": grade_distribution,
+            "grade_percentages": grade_percentages,
+            "pass_rate": round((grade_distribution["A+"] + grade_distribution["A"] + grade_distribution["B+"] + grade_distribution["B"] + grade_distribution["C"] + grade_distribution["D"]) / total_students * 100, 2) if total_students > 0 else 0
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching grade distribution: {str(e)}")
+
+@app.get("/api/marks/performance-trends")
+async def get_performance_trends(
+    student_id: Optional[int] = None,
+    subject_id: Optional[int] = None,
+    class_id: Optional[int] = None,
+    semester_id: Optional[int] = None,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(RoleChecker(["admin", "hod", "teacher", "student"]))
+):
+    """Get performance trends over time"""
+    try:
+        current_user = db.query(User).filter(User.id == current_user_id).first()
+        if not current_user:
+            raise HTTPException(status_code=404, detail="Current user not found")
+        
+        # Check permissions for student
+        if current_user.role == "student" and student_id != current_user_id:
+            raise HTTPException(status_code=403, detail="Students can only view their own performance trends")
+        
+        # Build query with role-based filtering
+        query = db.query(Mark)
+        
+        if current_user.role == "hod":
+            query = query.join(Exam).join(Subject).filter(Subject.department_id == current_user.department_id)
+        elif current_user.role == "teacher":
+            query = query.join(Exam).filter(Exam.created_by == current_user_id)
+        elif current_user.role == "student":
+            query = query.filter(Mark.student_id == current_user_id)
+        
+        if student_id:
+            query = query.filter(Mark.student_id == student_id)
+        if subject_id:
+            query = query.join(Exam).filter(Exam.subject_id == subject_id)
+        if class_id:
+            query = query.join(Exam).filter(Exam.class_id == class_id)
+        if semester_id:
+            query = query.join(Exam).join(Subject).filter(Subject.semester_id == semester_id)
+        
+        # Order by exam date for trends
+        marks = query.join(Exam).order_by(Exam.exam_date).all()
+        
+        trends = []
+        for mark in marks:
+            percentage = (float(mark.marks_obtained) / float(mark.max_marks) * 100) if mark.max_marks > 0 else 0
+            trends.append({
+                "exam_id": mark.exam_id,
+                "exam_name": mark.exam.name if mark.exam else "Unknown",
+                "subject_name": mark.exam.subject.name if mark.exam and mark.exam.subject else "Unknown",
+                "marks_obtained": mark.marks_obtained,
+                "max_marks": mark.max_marks,
+                "percentage": round(percentage, 2),
+                "grade": calculate_grade(percentage),
+                "exam_date": mark.exam.exam_date.isoformat() if mark.exam and mark.exam.exam_date else None,
+                "created_at": mark.created_at.isoformat()
+            })
+        
+        return {
+            "performance_trends": trends,
+            "total_exams": len(trends),
+            "average_performance": round(sum(t["percentage"] for t in trends) / len(trends), 2) if trends else 0,
+            "improvement_trend": "improving" if len(trends) >= 2 and trends[-1]["percentage"] > trends[0]["percentage"] else "declining" if len(trends) >= 2 else "stable"
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching performance trends: {str(e)}")
+
+@app.get("/api/marks/class-rankings")
+async def get_class_rankings(
+    class_id: int,
+    exam_id: Optional[int] = None,
+    subject_id: Optional[int] = None,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(RoleChecker(["admin", "hod", "teacher"]))
+):
+    """Get class rankings for exams"""
+    try:
+        current_user = db.query(User).filter(User.id == current_user_id).first()
+        if not current_user:
+            raise HTTPException(status_code=404, detail="Current user not found")
+        
+        # Validate class exists and permissions
+        class_obj = db.query(Class).filter(Class.id == class_id).first()
+        if not class_obj:
+            raise HTTPException(status_code=404, detail="Class not found")
+        
+        if current_user.role == "hod" and class_obj.department_id != current_user.department_id:
+            raise HTTPException(status_code=403, detail="Access denied to class")
+        
+        # Build query
+        query = db.query(Mark).join(Exam).filter(Exam.class_id == class_id)
+        
+        if exam_id:
+            query = query.filter(Mark.exam_id == exam_id)
+        if subject_id:
+            query = query.filter(Exam.subject_id == subject_id)
+        
+        marks = query.all()
+        
+        # Group marks by student
+        student_marks = {}
+        for mark in marks:
+            if mark.student_id not in student_marks:
+                student_marks[mark.student_id] = {
+                    "student_id": mark.student_id,
+                    "student_name": f"{mark.student.first_name} {mark.student.last_name}" if mark.student else "Unknown",
+                    "total_obtained": 0,
+                    "total_maximum": 0,
+                    "exams_count": 0
+                }
+            
+            student_marks[mark.student_id]["total_obtained"] += float(mark.marks_obtained)
+            student_marks[mark.student_id]["total_maximum"] += float(mark.max_marks)
+            student_marks[mark.student_id]["exams_count"] += 1
+        
+        # Calculate rankings
+        rankings = []
+        for student_id, data in student_marks.items():
+            percentage = (data["total_obtained"] / data["total_maximum"] * 100) if data["total_maximum"] > 0 else 0
+            rankings.append({
+                "rank": 0,  # Will be calculated after sorting
+                "student_id": student_id,
+                "student_name": data["student_name"],
+                "total_obtained": data["total_obtained"],
+                "total_maximum": data["total_maximum"],
+                "percentage": round(percentage, 2),
+                "grade": calculate_grade(percentage),
+                "exams_count": data["exams_count"]
+            })
+        
+        # Sort by percentage and assign ranks
+        rankings.sort(key=lambda x: x["percentage"], reverse=True)
+        for i, ranking in enumerate(rankings):
+            ranking["rank"] = i + 1
+        
+        return {
+            "class_id": class_id,
+            "class_name": class_obj.name,
+            "total_students": len(rankings),
+            "rankings": rankings
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching class rankings: {str(e)}")
+
+@app.get("/api/marks/subject-analytics")
+async def get_subject_analytics(
+    subject_id: int,
+    semester_id: Optional[int] = None,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(RoleChecker(["admin", "hod", "teacher"]))
+):
+    """Get comprehensive analytics for a subject"""
+    try:
+        current_user = db.query(User).filter(User.id == current_user_id).first()
+        if not current_user:
+            raise HTTPException(status_code=404, detail="Current user not found")
+        
+        # Validate subject exists and permissions
+        subject = db.query(Subject).filter(Subject.id == subject_id).first()
+        if not subject:
+            raise HTTPException(status_code=404, detail="Subject not found")
+        
+        if current_user.role == "hod" and subject.department_id != current_user.department_id:
+            raise HTTPException(status_code=403, detail="Access denied to subject")
+        elif current_user.role == "teacher" and subject.teacher_id != current_user_id:
+            raise HTTPException(status_code=403, detail="Access denied to subject")
+        
+        # Get all exams for this subject
+        exams_query = db.query(Exam).filter(Exam.subject_id == subject_id)
+        if semester_id:
+            exams_query = exams_query.join(Subject).filter(Subject.semester_id == semester_id)
+        
+        exams = exams_query.all()
+        exam_ids = [exam.id for exam in exams]
+        
+        # Get all marks for this subject
+        marks = db.query(Mark).filter(Mark.exam_id.in_(exam_ids)).all()
+        
+        # Calculate analytics
+        total_students = len(set(mark.student_id for mark in marks))
+        total_exams = len(exams)
+        total_marks = len(marks)
+        
+        if marks:
+            total_obtained = sum(float(mark.marks_obtained) for mark in marks)
+            total_maximum = sum(float(mark.max_marks) for mark in marks)
+            average_performance = round((total_obtained / total_maximum * 100), 2)
+            
+            # Pass rate (40% and above)
+            passing_marks = len([m for m in marks if float(m.marks_obtained) >= float(m.max_marks) * 0.4])
+            pass_rate = round((passing_marks / total_marks * 100), 2)
+            
+            # Grade distribution
+            grade_distribution = {"A+": 0, "A": 0, "B+": 0, "B": 0, "C": 0, "D": 0, "F": 0}
+            for mark in marks:
+                percentage = (float(mark.marks_obtained) / float(mark.max_marks) * 100) if mark.max_marks > 0 else 0
+                if percentage >= 90:
+                    grade_distribution["A+"] += 1
+                elif percentage >= 80:
+                    grade_distribution["A"] += 1
+                elif percentage >= 70:
+                    grade_distribution["B+"] += 1
+                elif percentage >= 60:
+                    grade_distribution["B"] += 1
+                elif percentage >= 50:
+                    grade_distribution["C"] += 1
+                elif percentage >= 40:
+                    grade_distribution["D"] += 1
+                else:
+                    grade_distribution["F"] += 1
+        else:
+            average_performance = 0.0
+            pass_rate = 0.0
+            grade_distribution = {"A+": 0, "A": 0, "B+": 0, "B": 0, "C": 0, "D": 0, "F": 0}
+        
+        # Exam-wise performance
+        exam_performance = []
+        for exam in exams:
+            exam_marks = [m for m in marks if m.exam_id == exam.id]
+            if exam_marks:
+                total_obtained = sum(float(mark.marks_obtained) for mark in exam_marks)
+                total_maximum = sum(float(mark.max_marks) for mark in exam_marks)
+                avg_performance = round((total_obtained / total_maximum * 100), 2) if total_maximum > 0 else 0
+                passing_count = len([m for m in exam_marks if float(m.marks_obtained) >= float(m.max_marks) * 0.4])
+                exam_pass_rate = round((passing_count / len(exam_marks) * 100), 2) if exam_marks else 0
+            else:
+                avg_performance = 0.0
+                exam_pass_rate = 0.0
+            
+            exam_performance.append({
+                "exam_id": exam.id,
+                "exam_name": exam.name,
+                "exam_date": exam.exam_date.isoformat() if exam.exam_date else None,
+                "total_marks": exam.total_marks,
+                "students_attempted": len(exam_marks),
+                "average_performance": avg_performance,
+                "pass_rate": exam_pass_rate
+            })
+        
+        return {
+            "subject_id": subject.id,
+            "subject_name": subject.name,
+            "subject_code": subject.code,
+            "department_name": subject.department.name if subject.department else "Unknown",
+            "total_students": total_students,
+            "total_exams": total_exams,
+            "total_marks": total_marks,
+            "average_performance": average_performance,
+            "pass_rate": pass_rate,
+            "grade_distribution": grade_distribution,
+            "exam_performance": exam_performance
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching subject analytics: {str(e)}")
+
+def calculate_grade(percentage: float) -> str:
+    """Calculate grade based on percentage"""
+    if percentage >= 90:
+        return "A+"
+    elif percentage >= 80:
+        return "A"
+    elif percentage >= 70:
+        return "B+"
+    elif percentage >= 60:
+        return "B"
+    elif percentage >= 50:
+        return "C"
+    elif percentage >= 40:
+        return "D"
+    else:
+        return "F"
+
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""

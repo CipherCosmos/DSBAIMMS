@@ -29,6 +29,7 @@ plugins:
       max_age: 3600
 
 services:
+  # Core Authentication Service
   - name: auth-service
     url: http://auth-service:8010
     routes:
@@ -38,15 +39,7 @@ services:
         strip_path: true
         path_handling: v0
 
-  - name: profile-service
-    url: http://profile-service:8025
-    routes:
-      - name: profiles
-        paths:
-          - /api/profile
-        strip_path: true
-        path_handling: v0
-
+  # User Management Service
   - name: user-service
     url: http://user-service:8011
     routes:
@@ -56,6 +49,7 @@ services:
         strip_path: true
         path_handling: v0
 
+  # Department Management Service
   - name: department-service
     url: http://department-service:8012
     routes:
@@ -65,6 +59,7 @@ services:
         strip_path: true
         path_handling: v0
 
+  # Class Management Service
   - name: classes-service
     url: http://classes-service:8004
     routes:
@@ -74,6 +69,7 @@ services:
         strip_path: true
         path_handling: v0
 
+  # Subject Management Service
   - name: subjects-service
     url: http://subjects-service:8005
     routes:
@@ -83,6 +79,7 @@ services:
         strip_path: true
         path_handling: v0
 
+  # Semester Management Service
   - name: semesters-service
     url: http://semesters-service:8006
     routes:
@@ -92,6 +89,7 @@ services:
         strip_path: true
         path_handling: v0
 
+  # Exam and Question Management Service
   - name: exams-service
     url: http://exams-service:8013
     routes:
@@ -102,6 +100,7 @@ services:
         strip_path: true
         path_handling: v0
 
+  # Marks Management Service
   - name: marks-service
     url: http://marks-service:8014
     routes:
@@ -111,6 +110,7 @@ services:
         strip_path: true
         path_handling: v0
 
+  # Analytics and Reporting Service
   - name: analytics-service
     url: http://analytics-service:8015
     routes:
@@ -120,7 +120,8 @@ services:
         strip_path: true
         path_handling: v0
 
-  - name: notifications-service
+  # Notification Service
+  - name: notification-service
     url: http://notification-service:8018
     routes:
       - name: notifications
@@ -129,6 +130,7 @@ services:
         strip_path: true
         path_handling: v0
 
+  # CO/PO Management Service
   - name: copo-service
     url: http://copo-service:8026
     routes:
@@ -138,50 +140,5 @@ services:
           - /api/pos
           - /api/copo-mappings
           - /api/copo
-        strip_path: true
-        path_handling: v0
-
-  - name: bulk-service
-    url: http://bulk-service:8016
-    routes:
-      - name: bulk
-        paths:
-          - /api/bulk
-        strip_path: true
-        path_handling: v0
-
-  - name: export-service
-    url: http://export-service:8017
-    routes:
-      - name: exports
-        paths:
-          - /api/exports
-        strip_path: true
-        path_handling: v0
-
-  - name: file-service
-    url: http://file-service:8019
-    routes:
-      - name: files
-        paths:
-          - /api/files
-        strip_path: true
-        path_handling: v0
-
-  - name: questionbank-service
-    url: http://questionbank-service:8020
-    routes:
-      - name: questionbanks
-        paths:
-          - /api/questionbanks
-        strip_path: true
-        path_handling: v0
-
-  - name: monitoring-service
-    url: http://monitoring-service:8021
-    routes:
-      - name: monitoring
-        paths:
-          - /api/monitoring
         strip_path: true
         path_handling: v0

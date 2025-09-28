@@ -4,6 +4,7 @@ import './globals.css'
 import { Providers } from '@/components/providers'
 import { ChunkErrorBoundary } from '@/components/ChunkErrorBoundary'
 import ErrorBoundary from '@/components/error/GlobalErrorBoundary'
+import { AuthDebug } from '@/components/debug/AuthDebug'
 
 const inter = Inter({ subsets: ['latin'] })
 
@@ -24,6 +25,7 @@ export default function RootLayout({
           <ErrorBoundary>
             <Providers>
               {children}
+              <AuthDebug />
             </Providers>
           </ErrorBoundary>
         </ChunkErrorBoundary>

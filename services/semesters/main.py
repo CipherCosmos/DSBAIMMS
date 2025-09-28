@@ -461,6 +461,373 @@ async def get_semester_analytics(
         promotion_rate=(completed_students / total_students * 100) if total_students > 0 else 0.0
     )
 
+# Bulk Operations for Semesters
+@app.post("/api/semesters/bulk-create")
+async def bulk_create_semesters(
+    bulk_data: dict,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(RoleChecker(["admin", "hod"]))
+):
+    """Bulk create semesters"""
+    current_user = db.query(User).filter(User.id == current_user_id).first()
+    if not current_user:
+        raise HTTPException(status_code=404, detail="Current user not found")
+    
+    semesters_data = bulk_data.get("semesters", [])
+    if not semesters_data:
+        raise HTTPException(status_code=400, detail="No semesters data provided")
+    
+    created_semesters = []
+    errors = []
+    
+    for i, semester_data in enumerate(semesters_data):
+        try:
+            # Validate department access
+            if current_user.role == "hod" and semester_data.get("department_id") != current_user.department_id:
+                errors.append(f"Row {i+1}: Access denied to department {semester_data.get('department_id')}")
+                continue
+            
+            # Validate department exists
+            department = db.query(Department).filter(Department.id == semester_data.get("department_id")).first()
+            if not department:
+                errors.append(f"Row {i+1}: Department not found")
+                continue
+            
+            # Check if semester already exists for this department and academic year
+            existing_semester = db.query(Semester).filter(
+                Semester.department_id == semester_data["department_id"],
+                Semester.name == semester_data["name"],
+                Semester.academic_year == semester_data.get("academic_year")
+            ).first()
+            
+            if existing_semester:
+                errors.append(f"Row {i+1}: Semester already exists for this department and academic year")
+                continue
+            
+            # Create semester
+            new_semester = Semester(
+                name=semester_data["name"],
+                department_id=semester_data["department_id"],
+                academic_year=semester_data.get("academic_year", datetime.now().year),
+                start_date=datetime.fromisoformat(semester_data["start_date"]) if semester_data.get("start_date") else None,
+                end_date=datetime.fromisoformat(semester_data["end_date"]) if semester_data.get("end_date") else None,
+                is_active=semester_data.get("is_active", True),
+                created_at=datetime.utcnow()
+            )
+            
+            db.add(new_semester)
+            db.commit()
+            db.refresh(new_semester)
+            
+            created_semesters.append({
+                "id": new_semester.id,
+                "name": new_semester.name,
+                "department_id": new_semester.department_id,
+                "academic_year": new_semester.academic_year,
+                "is_active": new_semester.is_active
+            })
+            
+            # Log audit
+            log_audit(db, current_user_id, "CREATE", "Semester", new_semester.id, None, semester_data)
+            
+        except Exception as e:
+            errors.append(f"Row {i+1}: {str(e)}")
+            continue
+    
+    return {
+        "message": f"Created {len(created_semesters)} semesters successfully",
+        "created_semesters": created_semesters,
+        "errors": errors
+    }
+
+@app.post("/api/semesters/bulk-enroll-students")
+async def bulk_enroll_students(
+    enrollment_data: dict,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(RoleChecker(["admin", "hod"]))
+):
+    """Bulk enroll students to semester"""
+    current_user = db.query(User).filter(User.id == current_user_id).first()
+    if not current_user:
+        raise HTTPException(status_code=404, detail="Current user not found")
+    
+    semester_id = enrollment_data.get("semester_id")
+    student_ids = enrollment_data.get("student_ids", [])
+    
+    if not semester_id or not student_ids:
+        raise HTTPException(status_code=400, detail="Semester ID and student IDs are required")
+    
+    # Validate semester exists and permissions
+    semester = db.query(Semester).filter(Semester.id == semester_id).first()
+    if not semester:
+        raise HTTPException(status_code=404, detail="Semester not found")
+    
+    if current_user.role == "hod" and semester.department_id != current_user.department_id:
+        raise HTTPException(status_code=403, detail="Access denied to semester")
+    
+    enrolled_students = []
+    errors = []
+    
+    for student_id in student_ids:
+        try:
+            # Validate student exists and permissions
+            student = db.query(User).filter(
+                User.id == student_id,
+                User.role == "student",
+                User.department_id == semester.department_id
+            ).first()
+            
+            if not student:
+                errors.append(f"Student {student_id} not found or access denied")
+                continue
+            
+            # Check if already enrolled
+            existing_enrollment = db.query(StudentSemesterEnrollment).filter(
+                StudentSemesterEnrollment.student_id == student_id,
+                StudentSemesterEnrollment.semester_id == semester_id,
+                StudentSemesterEnrollment.status == "active"
+            ).first()
+            
+            if existing_enrollment:
+                errors.append(f"Student {student_id} already enrolled in this semester")
+                continue
+            
+            # Create enrollment
+            enrollment = StudentSemesterEnrollment(
+                student_id=student_id,
+                semester_id=semester_id,
+                enrollment_date=datetime.utcnow(),
+                status="active"
+            )
+            
+            db.add(enrollment)
+            enrolled_students.append({
+                "student_id": student_id,
+                "student_name": f"{student.first_name} {student.last_name}",
+                "semester_id": semester_id,
+                "enrollment_date": enrollment.enrollment_date.isoformat()
+            })
+            
+        except Exception as e:
+            errors.append(f"Student {student_id}: {str(e)}")
+            continue
+    
+    db.commit()
+    
+    # Log audit
+    log_audit(db, current_user_id, "BULK_ENROLL", "StudentSemesterEnrollment", None, None, {
+        "semester_id": semester_id,
+        "enrolled_students": enrolled_students
+    })
+    
+    return {
+        "message": f"Enrolled {len(enrolled_students)} students successfully",
+        "enrolled_students": enrolled_students,
+        "errors": errors
+    }
+
+@app.post("/api/semesters/promote-students")
+async def promote_students_to_next_semester(
+    promotion_data: dict,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(RoleChecker(["admin", "hod"]))
+):
+    """Promote students from one semester to the next"""
+    current_user = db.query(User).filter(User.id == current_user_id).first()
+    if not current_user:
+        raise HTTPException(status_code=404, detail="Current user not found")
+    
+    from_semester_id = promotion_data.get("from_semester_id")
+    to_semester_id = promotion_data.get("to_semester_id")
+    student_ids = promotion_data.get("student_ids", [])
+    
+    if not all([from_semester_id, to_semester_id, student_ids]):
+        raise HTTPException(status_code=400, detail="From semester, to semester, and student IDs are required")
+    
+    # Validate semesters exist and permissions
+    from_semester = db.query(Semester).filter(Semester.id == from_semester_id).first()
+    to_semester = db.query(Semester).filter(Semester.id == to_semester_id).first()
+    
+    if not from_semester or not to_semester:
+        raise HTTPException(status_code=404, detail="One or both semesters not found")
+    
+    if current_user.role == "hod":
+        if from_semester.department_id != current_user.department_id or to_semester.department_id != current_user.department_id:
+            raise HTTPException(status_code=403, detail="Access denied to semesters from different department")
+    
+    promoted_students = []
+    errors = []
+    
+    for student_id in student_ids:
+        try:
+            # Validate student exists and is enrolled in from_semester
+            student = db.query(User).filter(User.id == student_id, User.role == "student").first()
+            if not student:
+                errors.append(f"Student {student_id} not found")
+                continue
+            
+            # Check if student is enrolled in from_semester
+            current_enrollment = db.query(StudentSemesterEnrollment).filter(
+                StudentSemesterEnrollment.student_id == student_id,
+                StudentSemesterEnrollment.semester_id == from_semester_id,
+                StudentSemesterEnrollment.status == "active"
+            ).first()
+            
+            if not current_enrollment:
+                errors.append(f"Student {student_id} not enrolled in source semester")
+                continue
+            
+            # Mark current enrollment as completed
+            current_enrollment.status = "completed"
+            current_enrollment.completion_date = datetime.utcnow()
+            
+            # Create new enrollment in target semester
+            new_enrollment = StudentSemesterEnrollment(
+                student_id=student_id,
+                semester_id=to_semester_id,
+                enrollment_date=datetime.utcnow(),
+                status="active"
+            )
+            
+            db.add(new_enrollment)
+            
+            promoted_students.append({
+                "student_id": student_id,
+                "student_name": f"{student.first_name} {student.last_name}",
+                "from_semester": from_semester.name,
+                "to_semester": to_semester.name,
+                "promotion_date": datetime.utcnow().isoformat()
+            })
+            
+        except Exception as e:
+            errors.append(f"Student {student_id}: {str(e)}")
+            continue
+    
+    db.commit()
+    
+    # Log audit
+    log_audit(db, current_user_id, "PROMOTE", "StudentSemesterEnrollment", None, None, {
+        "from_semester_id": from_semester_id,
+        "to_semester_id": to_semester_id,
+        "promoted_students": promoted_students
+    })
+    
+    return {
+        "message": f"Promoted {len(promoted_students)} students successfully",
+        "promoted_students": promoted_students,
+        "errors": errors
+    }
+
+@app.get("/api/semesters/performance-summary")
+async def get_semester_performance_summary(
+    semester_id: int,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(RoleChecker(["admin", "hod", "teacher"]))
+):
+    """Get comprehensive performance summary for a semester"""
+    try:
+        current_user = db.query(User).filter(User.id == current_user_id).first()
+        if not current_user:
+            raise HTTPException(status_code=404, detail="Current user not found")
+        
+        # Get semester
+        semester = db.query(Semester).filter(Semester.id == semester_id).first()
+        if not semester:
+            raise HTTPException(status_code=404, detail="Semester not found")
+        
+        # Check permissions
+        if current_user.role == "hod" and semester.department_id != current_user.department_id:
+            raise HTTPException(status_code=403, detail="Access denied to semester")
+        
+        # Get enrolled students
+        enrollments = db.query(StudentSemesterEnrollment).filter(
+            StudentSemesterEnrollment.semester_id == semester_id,
+            StudentSemesterEnrollment.status == "active"
+        ).all()
+        
+        student_ids = [enrollment.student_id for enrollment in enrollments]
+        
+        # Get performance data
+        from shared.models import Mark, Exam
+        
+        # Get all marks for students in this semester
+        semester_marks = db.query(Mark).join(Exam).filter(
+            Exam.semester_id == semester_id,
+            Mark.student_id.in_(student_ids)
+        ).all()
+        
+        # Calculate performance metrics
+        total_marks = len(semester_marks)
+        if total_marks > 0:
+            total_obtained = sum(float(mark.marks_obtained) for mark in semester_marks)
+            total_maximum = sum(float(mark.max_marks) for mark in semester_marks)
+            average_performance = round((total_obtained / total_maximum * 100), 2)
+            
+            # Grade distribution
+            grade_distribution = {"A+": 0, "A": 0, "B+": 0, "B": 0, "C": 0, "D": 0, "F": 0}
+            for mark in semester_marks:
+                percentage = (float(mark.marks_obtained) / float(mark.max_marks) * 100) if mark.max_marks > 0 else 0
+                if percentage >= 90:
+                    grade_distribution["A+"] += 1
+                elif percentage >= 80:
+                    grade_distribution["A"] += 1
+                elif percentage >= 70:
+                    grade_distribution["B+"] += 1
+                elif percentage >= 60:
+                    grade_distribution["B"] += 1
+                elif percentage >= 50:
+                    grade_distribution["C"] += 1
+                elif percentage >= 40:
+                    grade_distribution["D"] += 1
+                else:
+                    grade_distribution["F"] += 1
+            
+            # Pass rate
+            passing_marks = len([m for m in semester_marks if float(m.marks_obtained) >= float(m.max_marks) * 0.4])
+            pass_rate = round((passing_marks / total_marks * 100), 2)
+        else:
+            average_performance = 0.0
+            grade_distribution = {"A+": 0, "A": 0, "B+": 0, "B": 0, "C": 0, "D": 0, "F": 0}
+            pass_rate = 0.0
+        
+        # Get class-wise performance
+        classes = db.query(Class).filter(Class.semester_id == semester_id).all()
+        class_performance = []
+        
+        for class_obj in classes:
+            class_marks = db.query(Mark).join(Exam).filter(Exam.class_id == class_obj.id).all()
+            if class_marks:
+                total_obtained = sum(float(mark.marks_obtained) for mark in class_marks)
+                total_maximum = sum(float(mark.max_marks) for mark in class_marks)
+                avg_performance = round((total_obtained / total_maximum * 100), 2) if total_maximum > 0 else 0
+            else:
+                avg_performance = 0.0
+            
+            class_performance.append({
+                "class_id": class_obj.id,
+                "class_name": class_obj.name,
+                "student_count": len([e for e in enrollments if e.student.class_id == class_obj.id]),
+                "average_performance": avg_performance
+            })
+        
+        return {
+            "semester_id": semester.id,
+            "semester_name": semester.name,
+            "department_name": semester.department.name if semester.department else "Unknown",
+            "total_students": len(enrollments),
+            "total_marks": total_marks,
+            "average_performance": average_performance,
+            "pass_rate": pass_rate,
+            "grade_distribution": grade_distribution,
+            "class_performance": class_performance,
+            "academic_year": semester.academic_year,
+            "start_date": semester.start_date.isoformat() if semester.start_date else None,
+            "end_date": semester.end_date.isoformat() if semester.end_date else None
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching semester performance summary: {str(e)}")
+
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""

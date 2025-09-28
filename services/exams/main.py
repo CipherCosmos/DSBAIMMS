@@ -686,6 +686,279 @@ async def get_exam_analytics(
         co_analysis=co_analysis
     )
 
+# Bulk Operations
+@app.post("/api/exams/bulk-create-questions")
+async def bulk_create_questions(
+    bulk_data: dict,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(RoleChecker(["admin", "hod", "teacher"]))
+):
+    """Bulk create questions for exams"""
+    current_user = db.query(User).filter(User.id == current_user_id).first()
+    if not current_user:
+        raise HTTPException(status_code=404, detail="Current user not found")
+    
+    questions_data = bulk_data.get("questions", [])
+    if not questions_data:
+        raise HTTPException(status_code=400, detail="No questions data provided")
+    
+    created_questions = []
+    errors = []
+    
+    for i, question_data in enumerate(questions_data):
+        try:
+            subject_id = question_data.get("subject_id")
+            if not subject_id:
+                errors.append(f"Row {i+1}: Subject ID is required")
+                continue
+            
+            # Validate subject exists and permissions
+            subject = db.query(Subject).filter(Subject.id == subject_id).first()
+            if not subject:
+                errors.append(f"Row {i+1}: Subject not found")
+                continue
+            
+            # Check permissions
+            if current_user.role == "hod" and subject.department_id != current_user.department_id:
+                errors.append(f"Row {i+1}: Access denied to subject")
+                continue
+            elif current_user.role == "teacher" and subject.teacher_id != current_user_id:
+                errors.append(f"Row {i+1}: Access denied to subject")
+                continue
+            
+            # Validate CO if provided
+            co_id = question_data.get("co_id")
+            if co_id:
+                co = db.query(CO).filter(CO.id == co_id, CO.subject_id == subject_id).first()
+                if not co:
+                    errors.append(f"Row {i+1}: Invalid CO for this subject")
+                    continue
+            
+            # Create question
+            new_question = Question(
+                question_text=question_data["question_text"],
+                question_type=question_data.get("question_type", "short_answer"),
+                options=json.dumps(question_data.get("options", [])) if question_data.get("options") else None,
+                correct_answer=question_data["correct_answer"],
+                marks=float(question_data.get("marks", 1.0)),
+                difficulty_level=question_data.get("difficulty_level", "medium"),
+                bloom_level=question_data.get("bloom_level", "understand"),
+                co_id=co_id,
+                subject_id=subject_id,
+                tags=json.dumps(question_data.get("tags", [])),
+                created_by=current_user_id,
+                created_at=datetime.utcnow()
+            )
+            
+            db.add(new_question)
+            db.commit()
+            db.refresh(new_question)
+            
+            created_questions.append({
+                "id": new_question.id,
+                "question_text": new_question.question_text,
+                "question_type": new_question.question_type,
+                "marks": new_question.marks,
+                "difficulty_level": new_question.difficulty_level,
+                "bloom_level": new_question.bloom_level,
+                "subject_id": new_question.subject_id,
+                "co_id": new_question.co_id
+            })
+            
+        except Exception as e:
+            errors.append(f"Row {i+1}: {str(e)}")
+            continue
+    
+    return {
+        "message": f"Created {len(created_questions)} questions successfully",
+        "created_questions": created_questions,
+        "errors": errors
+    }
+
+@app.post("/api/exams/bulk-create-exams")
+async def bulk_create_exams(
+    bulk_data: dict,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(RoleChecker(["admin", "hod", "teacher"]))
+):
+    """Bulk create exams"""
+    current_user = db.query(User).filter(User.id == current_user_id).first()
+    if not current_user:
+        raise HTTPException(status_code=404, detail="Current user not found")
+    
+    exams_data = bulk_data.get("exams", [])
+    if not exams_data:
+        raise HTTPException(status_code=400, detail="No exams data provided")
+    
+    created_exams = []
+    errors = []
+    
+    for i, exam_data in enumerate(exams_data):
+        try:
+            subject_id = exam_data.get("subject_id")
+            if not subject_id:
+                errors.append(f"Row {i+1}: Subject ID is required")
+                continue
+            
+            # Validate subject exists and permissions
+            subject = db.query(Subject).filter(Subject.id == subject_id).first()
+            if not subject:
+                errors.append(f"Row {i+1}: Subject not found")
+                continue
+            
+            # Check permissions
+            if current_user.role == "hod" and subject.department_id != current_user.department_id:
+                errors.append(f"Row {i+1}: Access denied to subject")
+                continue
+            elif current_user.role == "teacher" and subject.teacher_id != current_user_id:
+                errors.append(f"Row {i+1}: Access denied to subject")
+                continue
+            
+            # Validate class if provided
+            class_id = exam_data.get("class_id")
+            if class_id:
+                class_obj = db.query(Class).filter(Class.id == class_id).first()
+                if not class_obj:
+                    errors.append(f"Row {i+1}: Class not found")
+                    continue
+            
+            # Create exam
+            new_exam = Exam(
+                name=exam_data["name"],
+                description=exam_data.get("description"),
+                subject_id=subject_id,
+                class_id=class_id,
+                exam_date=datetime.fromisoformat(exam_data["exam_date"]) if exam_data.get("exam_date") else datetime.utcnow(),
+                duration_minutes=int(exam_data.get("duration_minutes", 120)),
+                total_marks=float(exam_data.get("total_marks", 100.0)),
+                passing_marks=float(exam_data.get("passing_marks", 40.0)),
+                status=exam_data.get("status", "draft"),
+                instructions=exam_data.get("instructions"),
+                created_by=current_user_id,
+                created_at=datetime.utcnow()
+            )
+            
+            db.add(new_exam)
+            db.commit()
+            db.refresh(new_exam)
+            
+            created_exams.append({
+                "id": new_exam.id,
+                "name": new_exam.name,
+                "subject_id": new_exam.subject_id,
+                "class_id": new_exam.class_id,
+                "exam_date": new_exam.exam_date,
+                "total_marks": new_exam.total_marks,
+                "status": new_exam.status
+            })
+            
+        except Exception as e:
+            errors.append(f"Row {i+1}: {str(e)}")
+            continue
+    
+    return {
+        "message": f"Created {len(created_exams)} exams successfully",
+        "created_exams": created_exams,
+        "errors": errors
+    }
+
+@app.post("/api/exams/bulk-upload-marks")
+async def bulk_upload_marks(
+    bulk_data: dict,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(RoleChecker(["admin", "hod", "teacher"]))
+):
+    """Bulk upload marks for students"""
+    current_user = db.query(User).filter(User.id == current_user_id).first()
+    if not current_user:
+        raise HTTPException(status_code=404, detail="Current user not found")
+    
+    marks_data = bulk_data.get("marks", [])
+    if not marks_data:
+        raise HTTPException(status_code=400, detail="No marks data provided")
+    
+    uploaded_marks = []
+    errors = []
+    
+    for i, mark_data in enumerate(marks_data):
+        try:
+            exam_id = mark_data.get("exam_id")
+            student_id = mark_data.get("student_id")
+            marks_obtained = mark_data.get("marks_obtained")
+            max_marks = mark_data.get("max_marks")
+            
+            if not all([exam_id, student_id, marks_obtained, max_marks]):
+                errors.append(f"Row {i+1}: Exam ID, Student ID, Marks Obtained, and Max Marks are required")
+                continue
+            
+            # Validate exam exists and permissions
+            exam = db.query(Exam).filter(Exam.id == exam_id).first()
+            if not exam:
+                errors.append(f"Row {i+1}: Exam not found")
+                continue
+            
+            # Check permissions
+            if current_user.role == "hod" and exam.subject.department_id != current_user.department_id:
+                errors.append(f"Row {i+1}: Access denied to exam")
+                continue
+            elif current_user.role == "teacher" and exam.subject.teacher_id != current_user_id:
+                errors.append(f"Row {i+1}: Access denied to exam")
+                continue
+            
+            # Validate student exists
+            student = db.query(User).filter(User.id == student_id, User.role == "student").first()
+            if not student:
+                errors.append(f"Row {i+1}: Student not found")
+                continue
+            
+            # Check if mark already exists
+            existing_mark = db.query(Mark).filter(
+                Mark.exam_id == exam_id,
+                Mark.student_id == student_id,
+                Mark.attempt_number == mark_data.get("attempt_number", 1)
+            ).first()
+            
+            if existing_mark:
+                errors.append(f"Row {i+1}: Mark already exists for this attempt")
+                continue
+            
+            # Create mark
+            new_mark = Mark(
+                exam_id=exam_id,
+                student_id=student_id,
+                marks_obtained=float(marks_obtained),
+                max_marks=float(max_marks),
+                attempt_number=int(mark_data.get("attempt_number", 1)),
+                is_best_attempt=mark_data.get("is_best_attempt", True),
+                feedback=mark_data.get("feedback"),
+                graded_by=current_user_id,
+                graded_at=datetime.utcnow(),
+                created_at=datetime.utcnow()
+            )
+            
+            db.add(new_mark)
+            db.commit()
+            db.refresh(new_mark)
+            
+            uploaded_marks.append({
+                "id": new_mark.id,
+                "exam_id": new_mark.exam_id,
+                "student_id": new_mark.student_id,
+                "marks_obtained": new_mark.marks_obtained,
+                "max_marks": new_mark.max_marks,
+                "percentage": round((new_mark.marks_obtained / new_mark.max_marks) * 100, 2)
+            })
+            
+        except Exception as e:
+            errors.append(f"Row {i+1}: {str(e)}")
+            continue
+    
+    return {
+        "message": f"Uploaded {len(uploaded_marks)} marks successfully",
+        "uploaded_marks": uploaded_marks,
+        "errors": errors
+    }
+
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""

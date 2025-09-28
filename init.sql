@@ -1,6 +1,5 @@
--- Create main database
-CREATE DATABASE lms_db;
-\c lms_db;
+-- Database is already created by Docker Compose
+-- \c lms_db;
 
 -- Create extensions
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
@@ -63,25 +62,6 @@ CREATE TABLE semesters (
     UNIQUE(department_id, semester_number, academic_year)
 );
 
--- Student Semester Enrollments
-CREATE TABLE student_semester_enrollments (
-    id SERIAL PRIMARY KEY,
-    student_id INTEGER NOT NULL,
-    semester_id INTEGER NOT NULL,
-    class_id INTEGER NOT NULL,
-    enrollment_date DATE DEFAULT CURRENT_DATE,
-    status VARCHAR(20) DEFAULT 'active', -- active, completed, dropped, promoted
-    final_grade VARCHAR(5), -- A+, A, B+, B, C+, C, D, F
-    gpa DECIMAL(3,2),
-    attendance_percentage DECIMAL(5,2),
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    FOREIGN KEY (student_id) REFERENCES users(id),
-    FOREIGN KEY (semester_id) REFERENCES semesters(id),
-    FOREIGN KEY (class_id) REFERENCES classes(id),
-    UNIQUE(student_id, semester_id)
-);
-
 -- Classes table
 CREATE TABLE classes (
     id SERIAL PRIMARY KEY,
@@ -121,6 +101,25 @@ CREATE TABLE subjects (
     FOREIGN KEY (department_id) REFERENCES departments(id),
     FOREIGN KEY (class_id) REFERENCES classes(id),
     FOREIGN KEY (teacher_id) REFERENCES users(id)
+);
+
+-- Student Semester Enrollments
+CREATE TABLE student_semester_enrollments (
+    id SERIAL PRIMARY KEY,
+    student_id INTEGER NOT NULL,
+    semester_id INTEGER NOT NULL,
+    class_id INTEGER NOT NULL,
+    enrollment_date DATE DEFAULT CURRENT_DATE,
+    status VARCHAR(20) DEFAULT 'active', -- active, completed, dropped, promoted
+    final_grade VARCHAR(5), -- A+, A, B+, B, C+, C, D, F
+    gpa DECIMAL(3,2),
+    attendance_percentage DECIMAL(5,2),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    FOREIGN KEY (student_id) REFERENCES users(id),
+    FOREIGN KEY (semester_id) REFERENCES semesters(id),
+    FOREIGN KEY (class_id) REFERENCES classes(id),
+    UNIQUE(student_id, semester_id)
 );
 
 -- Program Outcomes (POs)
@@ -281,10 +280,10 @@ CREATE INDEX idx_audit_logs_user ON audit_logs(user_id);
 CREATE INDEX idx_audit_logs_created ON audit_logs(created_at);
 
 -- Insert sample data
-INSERT INTO departments (name, code, description) VALUES 
-('Computer Science and Engineering', 'CSE', 'Department of Computer Science and Engineering'),
-('Electronics and Communication Engineering', 'ECE', 'Department of Electronics and Communication Engineering'),
-('Mechanical Engineering', 'MECH', 'Department of Mechanical Engineering');
+INSERT INTO departments (name, code, description, academic_year) VALUES 
+('Computer Science and Engineering', 'CSE', 'Department of Computer Science and Engineering', '2024-25'),
+('Electronics and Communication Engineering', 'ECE', 'Department of Electronics and Communication Engineering', '2024-25'),
+('Mechanical Engineering', 'MECH', 'Department of Mechanical Engineering', '2024-25');
 
 -- Insert admin user
 INSERT INTO users (username, email, full_name, hashed_password, role, employee_id) VALUES
