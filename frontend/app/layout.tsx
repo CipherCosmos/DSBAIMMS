@@ -2,9 +2,9 @@ import type { Metadata } from 'next'
 import { Inter } from 'next/font/google'
 import './globals.css'
 import { Providers } from '@/components/providers'
-import { ChunkErrorBoundary } from '@/components/ChunkErrorBoundary'
+// ChunkErrorBoundary component removed during cleanup
 import ErrorBoundary from '@/components/error/GlobalErrorBoundary'
-import { AuthDebug } from '@/components/debug/AuthDebug'
+// AuthDebug component removed during cleanup
 
 const inter = Inter({ subsets: ['latin'] })
 
@@ -21,14 +21,11 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body className={inter.className}>
-        <ChunkErrorBoundary>
-          <ErrorBoundary>
-            <Providers>
-              {children}
-              <AuthDebug />
-            </Providers>
-          </ErrorBoundary>
-        </ChunkErrorBoundary>
+        <ErrorBoundary>
+          <Providers>
+            {children}
+          </Providers>
+        </ErrorBoundary>
       </body>
     </html>
   )

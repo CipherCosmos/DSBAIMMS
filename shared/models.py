@@ -1,13 +1,18 @@
-from sqlalchemy import Column, Integer, String, DateTime, Boolean, ForeignKey, Text, Enum, UniqueConstraint, JSON
+# Refactored LMS Models - Following Specification Hierarchy
+# Institution → Departments → Semesters → Classes → Subjects → Exams → Students
+# Properly normalized (1NF, 2NF, 3NF) with no circular dependencies
+
+from sqlalchemy import Column, Integer, String, DateTime, Boolean, ForeignKey, Text, UniqueConstraint, JSON
 from sqlalchemy.types import DECIMAL as Decimal
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from enum import Enum as PyEnum
-import enum
+from typing import List, Optional
 
 Base = declarative_base()
 
+# Enums for better type safety
 class UserRole(PyEnum):
     ADMIN = "admin"
     HOD = "hod"
@@ -40,7 +45,22 @@ class DifficultyLevel(PyEnum):
     MEDIUM = "medium"
     HARD = "hard"
 
+class AttendanceStatus(PyEnum):
+    PRESENT = "present"
+    ABSENT = "absent"
+    LATE = "late"
+    EXCUSED = "excused"
+
+class EnrollmentStatus(PyEnum):
+    ACTIVE = "active"
+    COMPLETED = "completed"
+    DROPPED = "dropped"
+    PROMOTED = "promoted"
+
+# Core Models following specification hierarchy
+
 class User(Base):
+    """Users table - Base entity for all system users"""
     __tablename__ = "users"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -57,30 +77,39 @@ class User(Base):
     profile_picture = Column(String(255))
     student_id = Column(String(20), unique=True)
     employee_id = Column(String(20), unique=True)
-    department_id = Column(Integer, ForeignKey("departments.id"))
-    class_id = Column(Integer, ForeignKey("classes.id"))
     date_of_birth = Column(DateTime(timezone=True))
     gender = Column(String(10))
     qualification = Column(String(100))
-    experience_years = Column(Integer, default= 0)
-    specializations = Column(Text)  # JSON string for specializations array
+    experience_years = Column(Integer, default=0)
+    specializations = Column(JSON)  # Array for better normalization
+    department_id = Column(Integer, ForeignKey("departments.id"))
+    class_id = Column(Integer, ForeignKey("classes.id"))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), onupdate = func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     last_login = Column(DateTime(timezone=True))
-    
-    # Relationships
+
+    # Relationships - Only direct relationships, no circular dependencies
     department = relationship("Department", foreign_keys=[department_id], back_populates="users")
-    class_assigned = relationship("Class", foreign_keys=[class_id], back_populates="students")
-    semester_enrollments = relationship("StudentSemesterEnrollment", foreign_keys="StudentSemesterEnrollment.student_id", back_populates="student", cascade="all, delete-orphan")
-    taught_subjects = relationship("TeacherSubject", foreign_keys="TeacherSubject.teacher_id", back_populates="teacher", cascade="all, delete-orphan")
-    marks = relationship("Mark", foreign_keys="Mark.student_id", back_populates="student")
+    department_hod = relationship("Department", foreign_keys="Department.hod_id", back_populates="hod")
+    class_ref = relationship("Class", foreign_keys=[class_id], back_populates="students")
+    class_teacher = relationship("Class", foreign_keys="Class.class_teacher_id", back_populates="class_teacher_ref")
+    class_cr = relationship("Class", foreign_keys="Class.cr_id", back_populates="cr_ref")
+    created_questions = relationship("Question", foreign_keys="Question.created_by", back_populates="creator")
     graded_marks = relationship("Mark", foreign_keys="Mark.graded_by", back_populates="grader")
+    marked_attendance = relationship("Attendance", foreign_keys="Attendance.marked_by", back_populates="marker")
+    uploaded_files = relationship("FileUpload", foreign_keys="FileUpload.uploaded_by", back_populates="uploader")
     created_question_banks = relationship("QuestionBank", foreign_keys="QuestionBank.created_by", back_populates="creator")
     added_question_bank_items = relationship("QuestionBankItem", foreign_keys="QuestionBankItem.added_by", back_populates="adder")
-    uploaded_files = relationship("FileUpload", foreign_keys="FileUpload.uploaded_by", back_populates="uploaded_by_user")
-    attendance_records = relationship("Attendance", foreign_keys="Attendance.student_id", back_populates="student", cascade="all, delete-orphan")
+    notifications = relationship("Notification", foreign_keys="Notification.user_id", back_populates="user")
+    student_enrollments = relationship("StudentSemesterEnrollment",
+        foreign_keys="StudentSemesterEnrollment.student_id",
+        back_populates="student")
+    teacher_subjects = relationship("TeacherSubject", foreign_keys="TeacherSubject.teacher_id", back_populates="teacher")
+    audit_logs = relationship("AuditLog", foreign_keys="AuditLog.user_id", back_populates="user")
+    system_logs = relationship("SystemLog", foreign_keys="SystemLog.user_id", back_populates="user")
 
 class Department(Base):
+    """Departments table - Top level in hierarchy"""
     __tablename__ = "departments"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -89,30 +118,29 @@ class Department(Base):
     description = Column(Text)
     hod_id = Column(Integer, ForeignKey("users.id"))
     duration_years = Column(Integer, default=4)
-    academic_year = Column(String(9), nullable=False)  # e.g., "2024-2025"
-    semester_count = Column(Integer, default= 8)  # Total semesters in the program
-    current_semester = Column(Integer, default= 1)  # Current active semester
+    academic_year = Column(String(10), nullable=False)
+    semester_count = Column(Integer, default=8)
+    current_semester = Column(Integer, default=1)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), onupdate = func.now())
-    
-    # Relationships
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Relationships - Direct children only
+    hod = relationship("User", foreign_keys=[hod_id], back_populates="department_hod")
     users = relationship("User", foreign_keys="User.department_id", back_populates="department")
-    hod = relationship("User", foreign_keys=[hod_id])
-    semesters = relationship("Semester", foreign_keys="Semester.department_id", back_populates="department")
-    classes = relationship("Class", foreign_keys="Class.department_id", back_populates="department")
-    subjects = relationship("Subject", foreign_keys="Subject.department_id", back_populates="department")
-    question_banks = relationship("QuestionBank", foreign_keys="QuestionBank.department_id", back_populates="department")
-    pos = relationship("PO", foreign_keys="PO.department_id", back_populates="department")
-    cos = relationship("CO", foreign_keys="CO.department_id", back_populates="department")
+    semesters = relationship("Semester", back_populates="department", cascade="all, delete-orphan")
+    subjects = relationship("Subject", back_populates="department", cascade="all, delete-orphan")
+    pos = relationship("PO", back_populates="department", cascade="all, delete-orphan")
+    question_banks = relationship("QuestionBank", back_populates="department", cascade="all, delete-orphan")
 
 class Semester(Base):
+    """Semesters table - Second level in hierarchy"""
     __tablename__ = "semesters"
 
     id = Column(Integer, primary_key=True, index=True)
     department_id = Column(Integer, ForeignKey("departments.id"), nullable=False)
     semester_number = Column(Integer, nullable=False)
-    academic_year = Column(String(9), nullable=False)
+    academic_year = Column(String(10), nullable=False)
     name = Column(String(50), nullable=False)
     start_date = Column(DateTime(timezone=True))
     end_date = Column(DateTime(timezone=True))
@@ -120,58 +148,44 @@ class Semester(Base):
     is_completed = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
-    
-    # Relationships
-    department = relationship("Department", foreign_keys=[department_id], back_populates="semesters")
-    classes = relationship("Class", foreign_keys="Class.semester_id", back_populates="semester")
-    student_enrollments = relationship("StudentSemesterEnrollment", foreign_keys="StudentSemesterEnrollment.semester_id", back_populates="semester")
 
-class StudentSemesterEnrollment(Base):
-    __tablename__ = "student_semester_enrollments"
-
-    id = Column(Integer, primary_key=True, index=True)
-    student_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    semester_id = Column(Integer, ForeignKey("semesters.id"), nullable=False)
-    class_id = Column(Integer, ForeignKey("classes.id"), nullable=False)
-    enrollment_date = Column(DateTime(timezone=True), server_default=func.now())
-    status = Column(String(20), default="active")  # active, completed, dropped, promoted
-    final_grade = Column(String(5))  # A+, A, B+, B, C+, C, D, F
-    gpa = Column(Decimal(3, 2))
-    attendance_percentage = Column(Decimal(5, 2))
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
-    
     # Relationships
-    student = relationship("User", foreign_keys=[student_id], back_populates="semester_enrollments")
-    semester = relationship("Semester", foreign_keys=[semester_id], back_populates="student_enrollments")
-    class_ref = relationship("Class", foreign_keys=[class_id], back_populates="enrollments")
+    department = relationship("Department", back_populates="semesters")
+    classes = relationship("Class", back_populates="semester", cascade="all, delete-orphan")
+    enrollments = relationship("StudentSemesterEnrollment", back_populates="semester", cascade="all, delete-orphan")
+    attendance_records = relationship("Attendance", back_populates="semester", cascade="all, delete-orphan")
 
 class Class(Base):
+    """Classes table - Third level in hierarchy"""
     __tablename__ = "classes"
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(50), nullable=False)
     year = Column(Integer, nullable=False)
-    semester_id = Column(Integer, ForeignKey("semesters.id"), nullable=False)
     section = Column(String(2), nullable=False)
+    semester_id = Column(Integer, ForeignKey("semesters.id"), nullable=False)
     department_id = Column(Integer, ForeignKey("departments.id"), nullable=False)
     class_teacher_id = Column(Integer, ForeignKey("users.id"))
     cr_id = Column(Integer, ForeignKey("users.id"))
+    max_students = Column(Integer, default=60)
+    description = Column(Text)
+    is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), onupdate = func.now())
-    
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
     # Relationships
-    students = relationship("User", foreign_keys="User.class_id", back_populates="class_assigned")
-    department = relationship("Department", foreign_keys=[department_id], back_populates="classes")
-    semester = relationship("Semester", foreign_keys=[semester_id], back_populates="classes")
-    class_teacher = relationship("User", foreign_keys=[class_teacher_id])
-    cr = relationship("User", foreign_keys=[cr_id])
-    subjects = relationship("Subject", foreign_keys="Subject.class_id", back_populates="class_ref")
-    exams = relationship("Exam", foreign_keys="Exam.class_id", back_populates="class_ref")
-    enrollments = relationship("StudentSemesterEnrollment", foreign_keys="StudentSemesterEnrollment.class_id", back_populates="class_ref")
-    attendance_records = relationship("Attendance", foreign_keys="Attendance.class_id", back_populates="class_", cascade="all, delete-orphan")
+    semester = relationship("Semester", back_populates="classes")
+    department = relationship("Department")
+    students = relationship("User", foreign_keys="User.class_id", back_populates="class_ref")
+    class_teacher_ref = relationship("User", foreign_keys=[class_teacher_id], back_populates="class_teacher")
+    cr_ref = relationship("User", foreign_keys=[cr_id], back_populates="class_cr")
+    enrollments = relationship("StudentSemesterEnrollment", back_populates="class_ref", cascade="all, delete-orphan")
+    subjects = relationship("Subject", back_populates="class_ref", cascade="all, delete-orphan")
+    exams = relationship("Exam", back_populates="class_ref", cascade="all, delete-orphan")
+    attendance_records = relationship("Attendance", back_populates="class_ref", cascade="all, delete-orphan")
 
 class Subject(Base):
+    """Subjects table - Fourth level in hierarchy"""
     __tablename__ = "subjects"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -186,92 +200,89 @@ class Subject(Base):
     teacher_id = Column(Integer, ForeignKey("users.id"))
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), onupdate = func.now())
-    
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
     # Relationships
-    department = relationship("Department", foreign_keys=[department_id], back_populates="subjects")
-    class_ref = relationship("Class", foreign_keys=[class_id], back_populates="subjects")
+    department = relationship("Department", back_populates="subjects")
+    class_ref = relationship("Class", back_populates="subjects")
     teacher = relationship("User", foreign_keys=[teacher_id])
-    teacher_subjects = relationship("TeacherSubject", foreign_keys="TeacherSubject.subject_id", back_populates="subject", cascade="all, delete-orphan")
-    question_banks = relationship("QuestionBank", foreign_keys="QuestionBank.subject_id", back_populates="subject")
-    exams = relationship("Exam", foreign_keys="Exam.subject_id", back_populates="subject")
-    cos = relationship("CO", foreign_keys="CO.subject_id", back_populates="subject")
-    attendance_records = relationship("Attendance", foreign_keys="Attendance.subject_id", back_populates="subject", cascade="all, delete-orphan")
+    teacher_subjects = relationship("TeacherSubject", back_populates="subject", cascade="all, delete-orphan")
+    exams = relationship("Exam", back_populates="subject", cascade="all, delete-orphan")
+    cos = relationship("CO", back_populates="subject", cascade="all, delete-orphan")
+    attendance_records = relationship("Attendance", back_populates="subject", cascade="all, delete-orphan")
+    question_banks = relationship("QuestionBank", back_populates="subject", cascade="all, delete-orphan")
 
-class PO(Base):
-    __tablename__ = "pos"
-
-    id = Column(Integer, primary_key=True, index=True)
-    name = Column(String(10), nullable=False)
-    description = Column(Text, nullable=False)
-    department_id = Column(Integer, ForeignKey("departments.id"), nullable=False)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), onupdate = func.now())
-    
-    # Relationships
-    department = relationship("Department", foreign_keys=[department_id], back_populates="pos")
-    co_po_mappings = relationship("COPOMapping", foreign_keys="COPOMapping.po_id", back_populates="po")
-
-class CO(Base):
-    __tablename__ = "cos"
+class TeacherSubject(Base):
+    """Junction table for teacher-subject assignments"""
+    __tablename__ = "teacher_subjects"
 
     id = Column(Integer, primary_key=True, index=True)
-    name = Column(String(10), nullable=False)
-    description = Column(Text, nullable=False)
-    subject_id = Column(Integer, ForeignKey("subjects.id"), nullable=False)
-    department_id = Column(Integer, ForeignKey("departments.id"), nullable=False)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), onupdate = func.now())
-    
-    # Relationships
-    subject = relationship("Subject", foreign_keys=[subject_id], back_populates="cos")
-    department = relationship("Department", foreign_keys=[department_id], back_populates="cos")
-    co_po_mappings = relationship("COPOMapping", foreign_keys="COPOMapping.co_id", back_populates="co")
-    questions = relationship("Question", foreign_keys="Question.co_id", back_populates="co")
+    teacher_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    subject_id = Column(Integer, ForeignKey("subjects.id", ondelete="CASCADE"), nullable=False)
+    assigned_at = Column(DateTime(timezone=True), server_default=func.now())
 
-class COPOMapping(Base):
-    __tablename__ = "co_po_mappings"
+    # Relationships
+    teacher = relationship("User")
+    subject = relationship("Subject", back_populates="teacher_subjects")
+
+    __table_args__ = (UniqueConstraint('teacher_id', 'subject_id', name='unique_teacher_subject'),)
+
+class StudentSemesterEnrollment(Base):
+    """Student enrollment in semesters and classes"""
+    __tablename__ = "student_semester_enrollments"
 
     id = Column(Integer, primary_key=True, index=True)
-    co_id = Column(Integer, ForeignKey("cos.id"), nullable=False)
-    po_id = Column(Integer, ForeignKey("pos.id"), nullable=False)
-    mapping_strength = Column(Decimal(3, 1), default=1.0)
+    student_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    semester_id = Column(Integer, ForeignKey("semesters.id"), nullable=False)
+    class_id = Column(Integer, ForeignKey("classes.id"), nullable=False)
+    enrollment_date = Column(DateTime(timezone=True), server_default=func.now())
+    status = Column(String(20), default="active")
+    final_grade = Column(String(5))
+    gpa = Column(Decimal(3,2), default=0.0)
+    attendance_percentage = Column(Decimal(5,2), default=0.0)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), onupdate = func.now())
-    
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
     # Relationships
-    co = relationship("CO", foreign_keys=[co_id], back_populates="co_po_mappings")
-    po = relationship("PO", foreign_keys=[po_id], back_populates="co_po_mappings")
+    student = relationship("User")
+    semester = relationship("Semester", back_populates="enrollments")
+    class_ref = relationship("Class", back_populates="enrollments")
+
+    __table_args__ = (UniqueConstraint('student_id', 'semester_id', name='unique_student_semester'),)
 
 class Exam(Base):
+    """Exams table - Fifth level in hierarchy"""
     __tablename__ = "exams"
 
     id = Column(Integer, primary_key=True, index=True)
-    title = Column(String(100), nullable=False)
+    title = Column(String(200), nullable=False)
     description = Column(Text)
     subject_id = Column(Integer, ForeignKey("subjects.id"), nullable=False)
     class_id = Column(Integer, ForeignKey("classes.id"), nullable=False)
-    exam_type = Column(String(20), default = "internal")  # Changed from Enum to String
-    status = Column(String(20), default = "draft")  # Changed from Enum to String
+    exam_type = Column(String(20), nullable=False)
+    status = Column(String(20), nullable=False)
     total_marks = Column(Integer, nullable=False)
     duration_minutes = Column(Integer, default=180)
     exam_date = Column(DateTime(timezone=True))
     start_time = Column(DateTime(timezone=True))
     end_time = Column(DateTime(timezone=True))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), onupdate = func.now())
-    
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
     # Relationships
-    subject = relationship("Subject", foreign_keys=[subject_id], back_populates="exams")
-    class_ref = relationship("Class", foreign_keys=[class_id], back_populates="exams")
-    sections = relationship("ExamSection", foreign_keys="ExamSection.exam_id", back_populates="exam", cascade="all, delete-orphan")
-    marks = relationship("Mark", foreign_keys="Mark.exam_id", back_populates="exam")
+    subject = relationship("Subject", back_populates="exams")
+    class_ref = relationship("Class", back_populates="exams")
+    sections = relationship("ExamSection", back_populates="exam", cascade="all, delete-orphan")
+    marks = relationship("Mark", back_populates="exam", cascade="all, delete-orphan")
+    question_attempts = relationship("QuestionAttempt", back_populates="exam", cascade="all, delete-orphan")
+    analytics = relationship("ExamAnalytics", back_populates="exam", cascade="all, delete-orphan")
 
 class ExamSection(Base):
+    """Exam sections (A, B, C) with optional question support"""
     __tablename__ = "exam_sections"
 
     id = Column(Integer, primary_key=True, index=True)
-    exam_id = Column(Integer, ForeignKey("exams.id"), nullable=False)
+    exam_id = Column(Integer, ForeignKey("exams.id", ondelete="CASCADE"), nullable=False)
     name = Column(String(20), nullable=False)
     instructions = Column(Text)
     total_marks = Column(Integer, nullable=False)
@@ -280,75 +291,139 @@ class ExamSection(Base):
     section_type = Column(String(20), default="standard")
     optional_questions = Column(Integer, default=0)
     mandatory_questions = Column(Integer, default=0)
-    question_marks = Column(Decimal(5, 2), default=0.0)
+    question_marks = Column(Decimal(5,2), default=0.0)
     is_optional_section = Column(Boolean, default=False)
-    created_at = Column(DateTime(timezone=True), server_default = func.now())
-    
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
     # Relationships
-    exam = relationship("Exam", foreign_keys=[exam_id], back_populates="sections")
-    questions = relationship("Question", foreign_keys="Question.section_id", back_populates="section")
+    exam = relationship("Exam", back_populates="sections")
+    questions = relationship("Question", back_populates="section", cascade="all, delete-orphan")
+    analytics = relationship("ExamAnalytics", back_populates="section", cascade="all, delete-orphan")
 
 class Question(Base):
+    """Questions with Bloom taxonomy and CO mapping"""
     __tablename__ = "questions"
 
     id = Column(Integer, primary_key=True, index=True)
     question_text = Column(Text, nullable=False)
-    marks = Column(Decimal(5, 2), nullable=False)
-    bloom_level = Column(String(20), nullable=False)  # Changed from Enum to String
-    difficulty_level = Column(String(20), default = "medium")  # Changed from Enum to String
-    section_id = Column(Integer, ForeignKey("exam_sections.id"), nullable=False)
-    co_id = Column(Integer, ForeignKey("cos.id"), nullable=False)
+    marks = Column(Decimal(5,2), nullable=False)
+    difficulty_level = Column(String(10), nullable=False)
+    bloom_level = Column(String(20), nullable=False)
+    section_id = Column(Integer, ForeignKey("exam_sections.id", ondelete="CASCADE"), nullable=False)
     parent_question_id = Column(Integer, ForeignKey("questions.id"))
     question_number = Column(String(10))
     order_index = Column(Integer, default=0)
     is_optional = Column(Boolean, default=False)
     is_sub_question = Column(Boolean, default=False)
     sub_question_text = Column(Text)
-    sub_question_marks = Column(Decimal(5, 2))
-    co_weight = Column(Decimal(3, 2), default=1.0)
+    sub_question_marks = Column(Decimal(5,2))
+    co_id = Column(Integer, ForeignKey("cos.id"))
+    co_weight = Column(Decimal(3,2), default=1.0)
     po_auto_mapped = Column(Boolean, default=False)
     created_by = Column(Integer, ForeignKey("users.id"))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), onupdate = func.now())
-    
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
     # Relationships
-    section = relationship("ExamSection", foreign_keys=[section_id], back_populates="questions")
-    co = relationship("CO", foreign_keys=[co_id], back_populates="questions")
+    section = relationship("ExamSection", back_populates="questions")
     parent_question = relationship("Question", remote_side=[id], backref="sub_questions")
-    marks = relationship("Mark", foreign_keys="Mark.question_id", back_populates="question")
-    question_bank_items = relationship("QuestionBankItem", foreign_keys="QuestionBankItem.question_id", back_populates="question")
-    creator = relationship("User", foreign_keys=[created_by])
+    creator = relationship("User", foreign_keys=[created_by], back_populates="created_questions")
+    co = relationship("CO", foreign_keys=[co_id], back_populates="questions")
+    marks = relationship("Mark", back_populates="question", cascade="all, delete-orphan")
+    question_attempts = relationship("QuestionAttempt", back_populates="question", cascade="all, delete-orphan")
+    question_bank_items = relationship("QuestionBankItem", back_populates="question", cascade="all, delete-orphan")
+    analytics = relationship("ExamAnalytics", back_populates="question", cascade="all, delete-orphan")
+
+class CO(Base):
+    """Course Outcomes"""
+    __tablename__ = "cos"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(20), nullable=False)
+    description = Column(Text, nullable=False)
+    subject_id = Column(Integer, ForeignKey("subjects.id", ondelete="CASCADE"), nullable=False)
+    department_id = Column(Integer, ForeignKey("departments.id"), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Relationships
+    subject = relationship("Subject", back_populates="cos")
+    department = relationship("Department")
+    questions = relationship("Question", foreign_keys="Question.co_id", back_populates="co")
+    co_po_mappings = relationship("COPOMapping", back_populates="co", cascade="all, delete-orphan")
+    analytics = relationship("ExamAnalytics", back_populates="co", cascade="all, delete-orphan")
+
+class PO(Base):
+    """Program Outcomes"""
+    __tablename__ = "pos"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(20), nullable=False)
+    description = Column(Text, nullable=False)
+    department_id = Column(Integer, ForeignKey("departments.id"), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Relationships
+    department = relationship("Department", back_populates="pos")
+    co_po_mappings = relationship("COPOMapping", back_populates="po", cascade="all, delete-orphan")
+    analytics = relationship("ExamAnalytics", back_populates="po", cascade="all, delete-orphan")
+
+class COPOMapping(Base):
+    """CO-PO Mapping with strength"""
+    __tablename__ = "co_po_mappings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    co_id = Column(Integer, ForeignKey("cos.id", ondelete="CASCADE"), nullable=False)
+    po_id = Column(Integer, ForeignKey("pos.id", ondelete="CASCADE"), nullable=False)
+    mapping_strength = Column(Decimal(3,2), default=1.0)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Relationships
+    co = relationship("CO", back_populates="co_po_mappings")
+    po = relationship("PO", back_populates="co_po_mappings")
+
+    __table_args__ = (UniqueConstraint('co_id', 'po_id', name='unique_co_po_mapping'),)
 
 class Mark(Base):
+    """Student marks with CO/PO contribution tracking"""
     __tablename__ = "marks"
 
     id = Column(Integer, primary_key=True, index=True)
     student_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     exam_id = Column(Integer, ForeignKey("exams.id"), nullable=False)
     question_id = Column(Integer, ForeignKey("questions.id"), nullable=False)
-    marks_obtained = Column(Decimal(5, 2), default=0.0)
-    max_marks = Column(Decimal(5, 2), nullable=False)
+    marks_obtained = Column(Decimal(5,2), default=0.0)
+    max_marks = Column(Decimal(5,2), nullable=False)
     remarks = Column(Text)
     graded_by = Column(Integer, ForeignKey("users.id"))
     graded_at = Column(DateTime(timezone=True))
     is_attempted = Column(Boolean, default=True)
     attempt_number = Column(Integer, default=1)
     is_best_attempt = Column(Boolean, default=False)
-    is_counted_for_total = Column(Boolean, default=True)  # For optional question auto-calculation
-    co_contribution = Column(Decimal(5, 2), default=0.0)
-    po_contribution = Column(Decimal(5, 2), default=0.0)
+    is_counted_for_total = Column(Boolean, default=True)
+    co_contribution = Column(Decimal(5,2), default=0.0)
+    po_contribution = Column(Decimal(5,2), default=0.0)
     bloom_level = Column(String(20))
-    difficulty_level = Column(String(20))
+    difficulty_level = Column(String(10))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), onupdate = func.now())
-    
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
     # Relationships
-    student = relationship("User", foreign_keys=[student_id], back_populates="marks")
-    exam = relationship("Exam", foreign_keys=[exam_id], back_populates="marks")
-    question = relationship("Question", foreign_keys=[question_id], back_populates="marks")
+    student = relationship("User", foreign_keys=[student_id])
+    exam = relationship("Exam", back_populates="marks")
+    question = relationship("Question", back_populates="marks")
     grader = relationship("User", foreign_keys=[graded_by], back_populates="graded_marks")
 
+    __table_args__ = (UniqueConstraint('student_id',
+        'exam_id',
+        'question_id',
+        'attempt_number',
+        name='unique_mark_attempt'),)
+
 class QuestionAttempt(Base):
+    """Multiple attempts for optional questions"""
     __tablename__ = "question_attempts"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -356,47 +431,78 @@ class QuestionAttempt(Base):
     question_id = Column(Integer, ForeignKey("questions.id"), nullable=False)
     exam_id = Column(Integer, ForeignKey("exams.id"), nullable=False)
     attempt_number = Column(Integer, default=1)
-    marks_obtained = Column(Decimal(5, 2), default=0.0)
-    max_marks = Column(Decimal(5, 2), nullable=False)
+    marks_obtained = Column(Decimal(5,2), default=0.0)
+    max_marks = Column(Decimal(5,2), nullable=False)
     is_best_attempt = Column(Boolean, default=False)
     attempt_time = Column(DateTime(timezone=True), default=func.now())
     graded_by = Column(Integer, ForeignKey("users.id"))
     remarks = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    
+
     # Relationships
     student = relationship("User", foreign_keys=[student_id])
-    question = relationship("Question", foreign_keys=[question_id])
-    exam = relationship("Exam", foreign_keys=[exam_id])
+    question = relationship("Question", back_populates="question_attempts")
+    exam = relationship("Exam", back_populates="question_attempts")
     grader = relationship("User", foreign_keys=[graded_by])
 
+    __table_args__ = (UniqueConstraint('student_id', 'question_id', 'attempt_number', name='unique_question_attempt'),)
+
+class Attendance(Base):
+    """Student attendance tracking"""
+    __tablename__ = "attendance"
+
+    id = Column(Integer, primary_key=True, index=True)
+    student_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    subject_id = Column(Integer, ForeignKey("subjects.id"), nullable=False)
+    class_id = Column(Integer, ForeignKey("classes.id"), nullable=False)
+    semester_id = Column(Integer, ForeignKey("semesters.id"), nullable=False)
+    attendance_date = Column(DateTime(timezone=True), nullable=False)
+    status = Column(String(20), nullable=False)
+    remarks = Column(Text)
+    marked_by = Column(Integer, ForeignKey("users.id"))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Relationships
+    student = relationship("User", foreign_keys=[student_id])
+    subject = relationship("Subject", back_populates="attendance_records")
+    class_ref = relationship("Class", back_populates="attendance_records")
+    semester = relationship("Semester", back_populates="attendance_records")
+    marker = relationship("User", foreign_keys=[marked_by], back_populates="marked_attendance")
+
+    __table_args__ = (UniqueConstraint('student_id', 'subject_id', 'attendance_date', name='unique_attendance_per_day'),)
+
 class ExamAnalytics(Base):
+    """Pre-computed analytics for performance tracking"""
     __tablename__ = "exam_analytics"
 
     id = Column(Integer, primary_key=True, index=True)
     exam_id = Column(Integer, ForeignKey("exams.id"), nullable=False)
     student_id = Column(Integer, ForeignKey("users.id"))
     section_id = Column(Integer, ForeignKey("exam_sections.id"))
+    question_id = Column(Integer, ForeignKey("questions.id"))
     co_id = Column(Integer, ForeignKey("cos.id"))
     po_id = Column(Integer, ForeignKey("pos.id"))
-    total_marks = Column(Decimal(5, 2), default=0.0)
-    obtained_marks = Column(Decimal(5, 2), default=0.0)
-    percentage = Column(Decimal(5, 2), default=0.0)
+    total_marks = Column(Decimal(5,2), default=0.0)
+    obtained_marks = Column(Decimal(5,2), default=0.0)
+    percentage = Column(Decimal(5,2), default=0.0)
     bloom_level = Column(String(20))
-    difficulty_level = Column(String(20))
-    co_attainment = Column(Decimal(5, 2), default=0.0)
-    po_attainment = Column(Decimal(5, 2), default=0.0)
+    difficulty_level = Column(String(10))
+    co_attainment = Column(Decimal(5,2), default=0.0)
+    po_attainment = Column(Decimal(5,2), default=0.0)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
-    
+
     # Relationships
-    exam = relationship("Exam", foreign_keys=[exam_id])
+    exam = relationship("Exam", back_populates="analytics")
     student = relationship("User", foreign_keys=[student_id])
-    section = relationship("ExamSection", foreign_keys=[section_id])
-    co = relationship("CO", foreign_keys=[co_id])
-    po = relationship("PO", foreign_keys=[po_id])
+    section = relationship("ExamSection", back_populates="analytics")
+    question = relationship("Question", back_populates="analytics")
+    co = relationship("CO", back_populates="analytics")
+    po = relationship("PO", back_populates="analytics")
 
 class QuestionBank(Base):
+    """Question repository"""
     __tablename__ = "question_banks"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -407,44 +513,55 @@ class QuestionBank(Base):
     created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
     is_public = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), onupdate = func.now())
-    
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
     # Relationships
-    department = relationship("Department", foreign_keys=[department_id], back_populates="question_banks")
-    subject = relationship("Subject", foreign_keys=[subject_id], back_populates="question_banks")
+    department = relationship("Department", back_populates="question_banks")
+    subject = relationship("Subject", back_populates="question_banks")
     creator = relationship("User", foreign_keys=[created_by], back_populates="created_question_banks")
-    items = relationship("QuestionBankItem", foreign_keys="QuestionBankItem.question_bank_id", back_populates="question_bank", cascade="all, delete-orphan")
+    items = relationship("QuestionBankItem", back_populates="question_bank", cascade="all, delete-orphan")
 
 class QuestionBankItem(Base):
+    """Junction table for question banks"""
     __tablename__ = "question_bank_items"
 
     id = Column(Integer, primary_key=True, index=True)
-    question_bank_id = Column(Integer, ForeignKey("question_banks.id"), nullable=False)
-    question_id = Column(Integer, ForeignKey("questions.id"), nullable=False)
+    question_bank_id = Column(Integer, ForeignKey("question_banks.id", ondelete="CASCADE"), nullable=False)
+    question_id = Column(Integer, ForeignKey("questions.id", ondelete="CASCADE"), nullable=False)
     added_by = Column(Integer, ForeignKey("users.id"), nullable=False)
-    added_at = Column(DateTime(timezone=True), server_default = func.now())
-    
+    added_at = Column(DateTime(timezone=True), server_default=func.now())
+
     # Relationships
-    question_bank = relationship("QuestionBank", foreign_keys=[question_bank_id], back_populates="items")
-    question = relationship("Question", foreign_keys=[question_id], back_populates="question_bank_items")
+    question_bank = relationship("QuestionBank", back_populates="items")
+    question = relationship("Question", back_populates="question_bank_items")
     adder = relationship("User", foreign_keys=[added_by], back_populates="added_question_bank_items")
 
+    __table_args__ = (UniqueConstraint('question_bank_id', 'question_id', name='unique_question_bank_item'),)
+
 class Notification(Base):
+    """System notifications"""
     __tablename__ = "notifications"
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     title = Column(String(200), nullable=False)
     message = Column(Text, nullable=False)
-    type = Column(String(50), default="info")  # info, warning, error, success,
+    type = Column(String(50), default="info")
+    priority = Column(String(20), default="medium")  # low, medium, high, urgent
     is_read = Column(Boolean, default=False)
     action_url = Column(String(500))
-    created_at = Column(DateTime(timezone=True), server_default = func.now())
-    
+    sender_id = Column(Integer, ForeignKey("users.id"))
+    sender_name = Column(String(100))
+    scheduled_at = Column(DateTime(timezone=True))
+    expires_at = Column(DateTime(timezone=True))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
     # Relationships
-    user = relationship("User", foreign_keys=[user_id])
+    user = relationship("User", foreign_keys=[user_id], back_populates="notifications")
+    sender = relationship("User", foreign_keys=[sender_id])
 
 class FileUpload(Base):
+    """File management"""
     __tablename__ = "file_uploads"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -454,65 +571,32 @@ class FileUpload(Base):
     file_size = Column(Integer, nullable=False)
     mime_type = Column(String(100), nullable=False)
     uploaded_by = Column(Integer, ForeignKey("users.id"), nullable=False)
-    entity_type = Column(String(50))  # exam, question, user, etc.
+    entity_type = Column(String(50))
     entity_id = Column(Integer)
     is_public = Column(Boolean, default=False)
-    created_at = Column(DateTime(timezone=True), server_default = func.now())
-    
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
     # Relationships
-    uploaded_by_user = relationship("User", foreign_keys=[uploaded_by], back_populates="uploaded_files")
+    uploader = relationship("User", foreign_keys=[uploaded_by], back_populates="uploaded_files")
 
 class SystemLog(Base):
+    """System monitoring logs"""
     __tablename__ = "system_logs"
 
     id = Column(Integer, primary_key=True, index=True)
-    level = Column(String(20), nullable=False)  # DEBUG, INFO, WARNING, ERROR, CRITICAL,
+    level = Column(String(20), nullable=False)
     message = Column(Text, nullable=False)
     module = Column(String(100))
     user_id = Column(Integer, ForeignKey("users.id"))
     ip_address = Column(String(45))
     user_agent = Column(Text)
-    created_at = Column(DateTime(timezone=True), server_default = func.now())
-    
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
     # Relationships
-    user = relationship("User", foreign_keys=[user_id])
-
-class TeacherSubject(Base):
-    __tablename__ = "teacher_subjects"
-
-    id = Column(Integer, primary_key=True, index=True)
-    teacher_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    subject_id = Column(Integer, ForeignKey("subjects.id", ondelete="CASCADE"), nullable=False)
-    
-    # Relationships
-    teacher = relationship("User", foreign_keys=[teacher_id], back_populates="taught_subjects")
-    subject = relationship("Subject", foreign_keys=[subject_id], back_populates="teacher_subjects")
-    
-    __table_args__ = (UniqueConstraint('teacher_id', 'subject_id', name='unique_teacher_subject'),)
-
-class Attendance(Base):
-    __tablename__ = "attendance"
-
-    id = Column(Integer, primary_key=True, index=True)
-    student_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    subject_id = Column(Integer, ForeignKey("subjects.id"), nullable=False)
-    class_id = Column(Integer, ForeignKey("classes.id"), nullable=False)
-    attendance_date = Column(DateTime, nullable=False)
-    status = Column(String(20), nullable=False)  # present, absent, late, excused
-    remarks = Column(Text)
-    marked_by = Column(Integer, ForeignKey("users.id"), nullable=False)
-    created_at = Column(DateTime(timezone=True), server_default = func.now())
-    updated_at = Column(DateTime(timezone=True), onupdate = func.now())
-    
-    # Relationships
-    student = relationship("User", foreign_keys=[student_id], back_populates="attendance_records")
-    subject = relationship("Subject", back_populates="attendance_records")
-    class_ = relationship("Class", back_populates="attendance_records")
-    marked_by_user = relationship("User", foreign_keys=[marked_by])
-    
-    __table_args__ = (UniqueConstraint('student_id', 'subject_id', 'attendance_date', name='unique_attendance_per_day'),)
+    user = relationship("User", foreign_keys=[user_id], back_populates="system_logs")
 
 class AuditLog(Base):
+    """Audit trail"""
     __tablename__ = "audit_logs"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -520,11 +604,11 @@ class AuditLog(Base):
     action = Column(String(50), nullable=False)
     table_name = Column(String(50), nullable=False)
     record_id = Column(Integer)
-    old_values = Column(Text)  # JSON string
-    new_values = Column(Text)  # JSON string
+    old_values = Column(JSON)
+    new_values = Column(JSON)
     ip_address = Column(String(45))
     user_agent = Column(Text)
-    created_at = Column(DateTime(timezone=True), server_default = func.now())
-    
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
     # Relationships
-    user = relationship("User", foreign_keys=[user_id])
+    user = relationship("User", foreign_keys=[user_id], back_populates="audit_logs")

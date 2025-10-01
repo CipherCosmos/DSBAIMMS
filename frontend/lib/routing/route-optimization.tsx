@@ -77,22 +77,6 @@ export const ROUTE_CONFIGS: RouteConfig[] = [
     cache: false,
     prefetch: false,
   },
-  {
-    path: '/dashboard/monitoring',
-    component: lazy(() => import('@/app/dashboard/monitoring/page')),
-    preload: false,
-    priority: 'low',
-    cache: false,
-    prefetch: false,
-  },
-  {
-    path: '/dashboard/bulk',
-    component: lazy(() => import('@/app/dashboard/bulk/page')),
-    preload: false,
-    priority: 'low',
-    cache: false,
-    prefetch: false,
-  },
 
   // HOD routes
   {
@@ -131,7 +115,7 @@ export const ROUTE_CONFIGS: RouteConfig[] = [
   // Teacher routes
   {
     path: '/dashboard/exams',
-    component: lazy(() => import('@/app/dashboard/files/exams/page')),
+    component: lazy(() => import('@/app/dashboard/exams/page')),
     preload: false,
     priority: 'high',
     cache: true,
@@ -142,22 +126,6 @@ export const ROUTE_CONFIGS: RouteConfig[] = [
     component: lazy(() => import('@/app/dashboard/marks/page')),
     preload: false,
     priority: 'high',
-    cache: true,
-    prefetch: true,
-  },
-  {
-    path: '/dashboard/attendance',
-    component: lazy(() => import('@/app/dashboard/attendance/page')),
-    preload: false,
-    priority: 'medium',
-    cache: true,
-    prefetch: true,
-  },
-  {
-    path: '/dashboard/questionbanks',
-    component: lazy(() => import('@/app/dashboard/questionbanks/page')),
-    preload: false,
-    priority: 'medium',
     cache: true,
     prefetch: true,
   },
@@ -174,22 +142,6 @@ export const ROUTE_CONFIGS: RouteConfig[] = [
   {
     path: '/dashboard/profile',
     component: lazy(() => import('@/app/dashboard/profile/page')),
-    preload: false,
-    priority: 'medium',
-    cache: true,
-    prefetch: true,
-  },
-  {
-    path: '/dashboard/reports',
-    component: lazy(() => import('@/app/dashboard/reports/page')),
-    preload: false,
-    priority: 'medium',
-    cache: true,
-    prefetch: true,
-  },
-  {
-    path: '/dashboard/files',
-    component: lazy(() => import('@/app/dashboard/files/page')),
     preload: false,
     priority: 'medium',
     cache: true,
@@ -232,14 +184,6 @@ export const ROUTE_CONFIGS: RouteConfig[] = [
   {
     path: '/debug/error-handling',
     component: lazy(() => import('@/app/debug/error-handling/page')),
-    preload: false,
-    priority: 'low',
-    cache: false,
-    prefetch: false,
-  },
-  {
-    path: '/debug/monitoring',
-    component: lazy(() => import('@/app/debug/monitoring/page')),
     preload: false,
     priority: 'low',
     cache: false,

@@ -10,10 +10,11 @@ import pandas as pd
 from io import BytesIO, StringIO
 
 from shared.database import get_db
-from shared.models import Class, Department, User, Subject, Semester, AuditLog, StudentSemesterEnrollment
+from shared.models import Class, Department, User, Subject, Semester, AuditLog, StudentSemesterEnrollment, TeacherSubject
 from shared.auth import RoleChecker
 from shared.schemas import ClassResponse, ClassCreate, ClassUpdate
 from shared.permissions import PermissionChecker
+from shared.audit import log_audit, log_bulk_audit
 
 app = FastAPI(title="Classes Service", version="1.0.0")
 
@@ -55,24 +56,7 @@ class ClassAnalytics(BaseModel):
 class BulkClassCreate(BaseModel):
     classes: List[ClassCreateEnhanced]
 
-def log_audit(db: Session, user_id: int, action: str, table_name: str, record_id: int = None,
-              old_values: dict = None, new_values: dict = None):
-    """Log audit trail"""
-    import json
-    
-    audit_log = AuditLog(
-        user_id=user_id,
-        action=action,
-        table_name=table_name,
-        record_id=record_id,
-        old_values=json.dumps(old_values) if old_values else None,
-        new_values=json.dumps(new_values) if new_values else None,
-        created_at=datetime.utcnow()
-    )
-    db.add(audit_log)
-    db.commit()
 
-# Root endpoint
 @app.get("/")
 async def root():
     return {"message": "Classes Service", "version": "1.0.0"}
@@ -89,14 +73,14 @@ async def get_classes(
 ):
     """Get classes with role-based filtering"""
     current_user = db.query(User).filter(User.id == current_user_id).first()
-    
+
     query = db.query(Class).options(
         joinedload(Class.department),
         joinedload(Class.semester),
-        joinedload(Class.class_teacher),
-        joinedload(Class.cr)
+        joinedload(Class.class_teacher_ref),
+        joinedload(Class.cr_ref)
     )
-    
+
     # Apply role-based filtering
     if current_user.role == "hod":
         query = query.filter(Class.department_id == current_user.department_id)
@@ -108,15 +92,49 @@ async def get_classes(
             query = query.filter(Class.id.in_(class_ids))
         else:
             query = query.filter(False)  # No access if no subjects assigned
-    
+
     # Apply filters
     if department_id:
         query = query.filter(Class.department_id == department_id)
     if semester_id:
         query = query.filter(Class.semester_id == semester_id)
-    
+
     classes = query.offset(skip).limit(limit).all()
-    return classes
+    
+    # Format response to match ClassResponse schema
+    result = []
+    for class_obj in classes:
+        # Count students in this class
+        students_count = db.query(StudentSemesterEnrollment).filter(
+            StudentSemesterEnrollment.class_id == class_obj.id
+        ).count()
+        
+        # Count subjects for this class (simplified for now)
+        subjects_count = 0  # TODO: Fix when database schema is updated
+        
+        result.append(ClassResponse(
+            id=class_obj.id,
+            name=class_obj.name,
+            year=class_obj.year,
+            section=class_obj.section,
+            semester_id=class_obj.semester_id,
+            department_id=class_obj.department_id,
+            class_teacher_id=class_obj.class_teacher_id,
+            cr_id=class_obj.cr_id,
+            max_students=class_obj.max_students,
+            description=class_obj.description,
+            is_active=class_obj.is_active,
+            semester_name=class_obj.semester.name if class_obj.semester else "Unknown",
+            department_name=class_obj.department.name if class_obj.department else "Unknown",
+            class_teacher_name=class_obj.class_teacher_ref.full_name if class_obj.class_teacher_ref else None,
+            cr_name=class_obj.cr_ref.full_name if class_obj.cr_ref else None,
+            students_count=students_count,
+            subjects_count=subjects_count,
+            created_at=class_obj.created_at,
+            updated_at=class_obj.updated_at
+        ))
+    
+    return result
 
 # Get class by ID
 @app.get("/classes/{class_id}", response_model=ClassResponse)
@@ -130,13 +148,13 @@ async def get_class(
     class_obj = db.query(Class).options(
         joinedload(Class.department),
         joinedload(Class.semester),
-        joinedload(Class.class_teacher),
-        joinedload(Class.cr)
+        joinedload(Class.class_teacher_ref),
+        joinedload(Class.cr_ref)
     ).filter(Class.id == class_id).first()
-    
+
     if not class_obj:
         raise HTTPException(status_code=404, detail="Class not found")
-    
+
     # Role-based access control
     if current_user.role == "hod":
         if class_obj.department_id != current_user.department_id:
@@ -147,8 +165,36 @@ async def get_class(
         class_ids = [subject.class_id for subject in teacher_subjects]
         if class_id not in class_ids:
             raise HTTPException(status_code=403, detail="Access denied")
+
+    # Count students in this class
+    students_count = db.query(StudentSemesterEnrollment).filter(
+        StudentSemesterEnrollment.class_id == class_obj.id
+    ).count()
     
-    return class_obj
+    # Count subjects for this class (simplified for now)
+    subjects_count = 0  # TODO: Fix when database schema is updated
+    
+    return ClassResponse(
+        id=class_obj.id,
+        name=class_obj.name,
+        year=class_obj.year,
+        section=class_obj.section,
+        semester_id=class_obj.semester_id,
+        department_id=class_obj.department_id,
+        class_teacher_id=class_obj.class_teacher_id,
+        cr_id=class_obj.cr_id,
+        max_students=class_obj.max_students,
+        description=class_obj.description,
+        is_active=class_obj.is_active,
+        semester_name=class_obj.semester.name if class_obj.semester else "Unknown",
+        department_name=class_obj.department.name if class_obj.department else "Unknown",
+        class_teacher_name=class_obj.class_teacher.full_name if class_obj.class_teacher else None,
+        cr_name=class_obj.cr.full_name if class_obj.cr else None,
+        students_count=students_count,
+        subjects_count=subjects_count,
+        created_at=class_obj.created_at,
+        updated_at=class_obj.updated_at
+    )
 
 # Create class
 @app.post("/classes", response_model=ClassResponse)
@@ -159,23 +205,23 @@ async def create_class(
 ):
     """Create a new class"""
     current_user = db.query(User).filter(User.id == current_user_id).first()
-    
+
     # Role-based restrictions
     if current_user.role == "hod":
         # HODs can only create classes in their department
         if class_data.department_id != current_user.department_id:
             raise HTTPException(status_code=403, detail="Can only create classes in your department")
-    
+
     # Validate department exists
     department = db.query(Department).filter(Department.id == class_data.department_id).first()
     if not department:
         raise HTTPException(status_code=404, detail="Department not found")
-    
+
     # Validate semester exists
     semester = db.query(Semester).filter(Semester.id == class_data.semester_id).first()
     if not semester:
         raise HTTPException(status_code=404, detail="Semester not found")
-    
+
     # Validate class teacher if provided
     if class_data.class_teacher_id:
         class_teacher = db.query(User).filter(
@@ -185,7 +231,7 @@ async def create_class(
         ).first()
         if not class_teacher:
             raise HTTPException(status_code=404, detail="Class teacher not found or not in same department")
-    
+
     # Validate CR if provided
     if class_data.cr_id:
         cr = db.query(User).filter(
@@ -195,7 +241,7 @@ async def create_class(
         ).first()
         if not cr:
             raise HTTPException(status_code=404, detail="Class Representative not found or already assigned")
-    
+
     # Check if class name and section combination already exists in department
     existing_class = db.query(Class).filter(
         Class.name == class_data.name,
@@ -205,7 +251,7 @@ async def create_class(
     ).first()
     if existing_class:
         raise HTTPException(status_code=400, detail="Class with this name and section already exists in the department and semester")
-    
+
     # Create class
     new_class = Class(
         name=class_data.name,
@@ -218,18 +264,18 @@ async def create_class(
         description=class_data.description,
         created_at=datetime.utcnow()
     )
-    
+
     db.add(new_class)
     db.commit()
     db.refresh(new_class)
-    
+
     # Assign CR to class if provided
     if class_data.cr_id:
         cr_user = db.query(User).filter(User.id == class_data.cr_id).first()
         if cr_user:
             cr_user.class_id = new_class.id
             db.commit()
-    
+
     # Log audit
     log_audit(db, current_user_id, "CREATE", "Class", new_class.id, None, {
         "name": class_data.name,
@@ -237,7 +283,7 @@ async def create_class(
         "department_id": class_data.department_id,
         "semester_id": class_data.semester_id
     })
-    
+
     return new_class
 
 # Update class
@@ -251,15 +297,15 @@ async def update_class(
     """Update class information"""
     current_user = db.query(User).filter(User.id == current_user_id).first()
     class_obj = db.query(Class).filter(Class.id == class_id).first()
-    
+
     if not class_obj:
         raise HTTPException(status_code=404, detail="Class not found")
-    
+
     # Role-based access control
     if current_user.role == "hod":
         if class_obj.department_id != current_user.department_id:
             raise HTTPException(status_code=403, detail="Can only update classes in your department")
-    
+
     # Store old values for audit
     old_values = {
         "name": class_obj.name,
@@ -269,7 +315,7 @@ async def update_class(
         "max_students": class_obj.max_students,
         "description": class_obj.description
     }
-    
+
     # Validate class teacher if being updated
     if class_data.class_teacher_id is not None:
         if class_data.class_teacher_id:
@@ -280,7 +326,7 @@ async def update_class(
             ).first()
             if not class_teacher:
                 raise HTTPException(status_code=404, detail="Class teacher not found or not in same department")
-    
+
     # Validate CR if being updated
     if class_data.cr_id is not None:
         if class_data.cr_id:
@@ -290,11 +336,11 @@ async def update_class(
             ).first()
             if not cr:
                 raise HTTPException(status_code=404, detail="Class Representative not found")
-            
+
             # Check if CR is already assigned to another class
             if cr.class_id and cr.class_id != class_id:
                 raise HTTPException(status_code=400, detail="Class Representative is already assigned to another class")
-    
+
     # Update fields
     if class_data.name is not None:
         class_obj.name = class_data.name
@@ -319,12 +365,12 @@ async def update_class(
         class_obj.max_students = class_data.max_students
     if class_data.description is not None:
         class_obj.description = class_data.description
-    
+
     class_obj.updated_at = datetime.utcnow()
-    
+
     db.commit()
     db.refresh(class_obj)
-    
+
     # Log audit
     log_audit(db, current_user_id, "UPDATE", "Class", class_id, old_values, {
         "name": class_obj.name,
@@ -334,7 +380,7 @@ async def update_class(
         "max_students": class_obj.max_students,
         "description": class_obj.description
     })
-    
+
     return class_obj
 
 # Delete class
@@ -347,44 +393,44 @@ async def delete_class(
     """Delete class (soft delete by setting is_active to False)"""
     current_user = db.query(User).filter(User.id == current_user_id).first()
     class_obj = db.query(Class).filter(Class.id == class_id).first()
-    
+
     if not class_obj:
         raise HTTPException(status_code=404, detail="Class not found")
-    
+
     # Role-based restrictions
     if current_user.role == "hod":
         if class_obj.department_id != current_user.department_id:
             raise HTTPException(status_code=403, detail="Can only delete classes in your department")
-    
+
     # Check if class has students
     student_count = db.query(User).filter(User.class_id == class_id, User.role == "student").count()
     if student_count > 0:
         raise HTTPException(status_code=400, detail=f"Cannot delete class with {student_count} students. Please reassign students first.")
-    
+
     # Check if class has subjects
     subject_count = db.query(Subject).filter(Subject.class_id == class_id).count()
     if subject_count > 0:
         raise HTTPException(status_code=400, detail=f"Cannot delete class with {subject_count} subjects. Please reassign subjects first.")
-    
+
     # Remove CR assignment
     if class_obj.cr_id:
         cr = db.query(User).filter(User.id == class_obj.cr_id).first()
         if cr:
             cr.class_id = None
-    
+
     # Soft delete
     class_obj.is_active = False
     class_obj.updated_at = datetime.utcnow()
-    
+
     db.commit()
-    
+
     # Log audit
     log_audit(db, current_user_id, "DELETE", "Class", class_id, {
         "name": class_obj.name,
         "section": class_obj.section,
         "department_id": class_obj.department_id
     }, None)
-    
+
     return {"message": "Class deleted successfully"}
 
 # Get class students
@@ -399,10 +445,10 @@ async def get_class_students(
     """Get students in a class"""
     current_user = db.query(User).filter(User.id == current_user_id).first()
     class_obj = db.query(Class).filter(Class.id == class_id).first()
-    
+
     if not class_obj:
         raise HTTPException(status_code=404, detail="Class not found")
-    
+
     # Role-based access control
     if current_user.role == "hod":
         if class_obj.department_id != current_user.department_id:
@@ -413,13 +459,13 @@ async def get_class_students(
         class_ids = [subject.class_id for subject in teacher_subjects]
         if class_id not in class_ids:
             raise HTTPException(status_code=403, detail="Access denied")
-    
+
     students = db.query(User).filter(
         User.class_id == class_id,
         User.role == "student",
         User.is_active == True
     ).offset(skip).limit(limit).all()
-    
+
     return students
 
 # Get class analytics
@@ -431,20 +477,20 @@ async def get_class_analytics(
 ):
     """Get class analytics and statistics"""
     current_user = db.query(User).filter(User.id == current_user_id).first()
-    
+
     query = db.query(Class).options(
         joinedload(Class.department),
         joinedload(Class.semester)
     )
-    
+
     # Apply role-based filtering
     if current_user.role == "hod":
         query = query.filter(Class.department_id == current_user.department_id)
     elif department_id:
         query = query.filter(Class.department_id == department_id)
-    
+
     classes = query.all()
-    
+
     # Calculate analytics
     total_classes = len(classes)
     classes_by_department = {}
@@ -452,7 +498,7 @@ async def get_class_analytics(
     total_students = 0
     classes_without_teachers = 0
     classes_without_cr = 0
-    
+
     for class_obj in classes:
         # By department
         if class_obj.department:
@@ -461,7 +507,7 @@ async def get_class_analytics(
                 classes_by_department[dept_name] += 1
             else:
                 classes_by_department[dept_name] = 1
-        
+
         # By semester
         if class_obj.semester:
             sem_name = class_obj.semester.name
@@ -469,7 +515,7 @@ async def get_class_analytics(
                 classes_by_semester[sem_name] += 1
             else:
                 classes_by_semester[sem_name] = 1
-        
+
         # Count students in class
         student_count = db.query(User).filter(
             User.class_id == class_obj.id,
@@ -477,15 +523,15 @@ async def get_class_analytics(
             User.is_active == True
         ).count()
         total_students += student_count
-        
+
         # Check for missing assignments
         if not class_obj.class_teacher_id:
             classes_without_teachers += 1
         if not class_obj.cr_id:
             classes_without_cr += 1
-    
+
     average_students_per_class = total_students / total_classes if total_classes > 0 else 0
-    
+
     return ClassAnalytics(
         total_classes=total_classes,
         classes_by_department=classes_by_department,
@@ -505,35 +551,35 @@ async def bulk_update_classes(
     current_user = db.query(User).filter(User.id == current_user_id).first()
     class_ids = request.get("class_ids", [])
     update_data = request.get("update_data", {})
-    
+
     if not class_ids:
         raise HTTPException(status_code=400, detail="No class IDs provided")
-    
+
     updated_classes = []
     for class_id in class_ids:
         class_obj = db.query(Class).filter(Class.id == class_id).first()
         if not class_obj:
             continue
-            
+
         # Role-based access control
         if current_user.role == "hod":
             if class_obj.department_id != current_user.department_id:
                 continue
-        
+
         # Update class data
         for field, value in update_data.items():
             if hasattr(class_obj, field) and field not in ["id", "created_at", "updated_at"]:
                 setattr(class_obj, field, value)
-        
+
         db.commit()
         updated_classes.append(class_id)
-    
+
     # Log audit
     log_audit(db, current_user_id, "BULK_UPDATE", "Class", None, None, {
         "class_ids": updated_classes,
         "update_data": update_data
     })
-    
+
     return {
         "message": f"Updated {len(updated_classes)} classes",
         "updated_classes": updated_classes
@@ -548,21 +594,21 @@ async def bulk_delete_classes(
     """Bulk delete classes"""
     current_user = db.query(User).filter(User.id == current_user_id).first()
     class_ids = request.get("class_ids", [])
-    
+
     if not class_ids:
         raise HTTPException(status_code=400, detail="No class IDs provided")
-    
+
     deleted_classes = []
     for class_id in class_ids:
         class_obj = db.query(Class).filter(Class.id == class_id).first()
         if not class_obj:
             continue
-            
+
         # Role-based access control
         if current_user.role == "hod":
             if class_obj.department_id != current_user.department_id:
                 continue
-        
+
         # Store class data for audit
         class_data = {
             "id": class_obj.id,
@@ -571,17 +617,17 @@ async def bulk_delete_classes(
             "department_id": class_obj.department_id,
             "semester_id": class_obj.semester_id
         }
-        
+
         db.delete(class_obj)
         deleted_classes.append({"id": class_id, "data": class_data})
-    
+
     db.commit()
-    
+
     # Log audit
     log_audit(db, current_user_id, "BULK_DELETE", "Class", None, None, {
         "deleted_classes": deleted_classes
     })
-    
+
     return {
         "message": f"Deleted {len(deleted_classes)} classes",
         "deleted_classes": [c["id"] for c in deleted_classes]
@@ -597,7 +643,7 @@ async def export_classes(
 ):
     """Export classes data in CSV or PDF format"""
     current_user = db.query(User).filter(User.id == current_user_id).first()
-    
+
     # Build query
     query = db.query(Class).options(
         joinedload(Class.department),
@@ -605,32 +651,32 @@ async def export_classes(
         joinedload(Class.class_teacher),
         joinedload(Class.class_representative)
     )
-    
+
     # Apply role-based filtering
     if current_user.role == "hod":
         query = query.filter(Class.department_id == current_user.department_id)
     elif department_id:
         query = query.filter(Class.department_id == department_id)
-    
+
     if semester_id:
         query = query.filter(Class.semester_id == semester_id)
-    
+
     classes = query.all()
-    
+
     if format.lower() == "csv":
         import csv
         import io
-        
+
         output = io.StringIO()
         writer = csv.writer(output)
-        
+
         # Write header
         writer.writerow([
-            "ID", "Name", "Section", "Department", "Semester", 
-            "Class Teacher", "Class Representative", "Max Students", 
+            "ID", "Name", "Section", "Department", "Semester",
+            "Class Teacher", "Class Representative", "Max Students",
             "Description", "Created At"
         ])
-        
+
         # Write data
         for class_obj in classes:
             writer.writerow([
@@ -645,33 +691,33 @@ async def export_classes(
                 class_obj.description or "",
                 class_obj.created_at.isoformat() if class_obj.created_at else ""
             ])
-        
+
         csv_data = output.getvalue()
         output.close()
-        
+
         return Response(
             content=csv_data,
             media_type="text/csv",
             headers={"Content-Disposition": f"attachment; filename=classes_export.csv"}
         )
-    
+
     elif format.lower() == "pdf":
         from reportlab.lib.pagesizes import letter
         from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
         from reportlab.lib.styles import getSampleStyleSheet
         from reportlab.lib import colors
         import io
-        
+
         buffer = io.BytesIO()
         doc = SimpleDocTemplate(buffer, pagesize=letter)
         styles = getSampleStyleSheet()
-        
+
         # Title
         title = Paragraph("Classes Export Report", styles['Title'])
-        
+
         # Table data
         data = [["ID", "Name", "Section", "Department", "Semester", "Class Teacher", "Class Representative"]]
-        
+
         for class_obj in classes:
             data.append([
                 str(class_obj.id),
@@ -682,7 +728,7 @@ async def export_classes(
                 class_obj.class_teacher.full_name if class_obj.class_teacher else "",
                 class_obj.class_representative.full_name if class_obj.class_representative else ""
             ])
-        
+
         table = Table(data)
         table.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
@@ -694,21 +740,21 @@ async def export_classes(
             ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
             ('GRID', (0, 0), (-1, -1), 1, colors.black)
         ]))
-        
+
         # Build PDF
         elements = [title, Spacer(1, 12), table]
         doc.build(elements)
-        
+
         buffer.seek(0)
         pdf_data = buffer.getvalue()
         buffer.close()
-        
+
         return Response(
             content=pdf_data,
             media_type="application/pdf",
             headers={"Content-Disposition": f"attachment; filename=classes_export.pdf"}
         )
-    
+
     else:
         raise HTTPException(status_code=400, detail="Unsupported format. Use 'csv' or 'pdf'")
 
@@ -723,33 +769,33 @@ async def bulk_create_classes(
     current_user = db.query(User).filter(User.id == current_user_id).first()
     if not current_user:
         raise HTTPException(status_code=404, detail="Current user not found")
-    
+
     classes_data = bulk_data.get("classes", [])
     if not classes_data:
         raise HTTPException(status_code=400, detail="No classes data provided")
-    
+
     created_classes = []
     errors = []
-    
+
     for i, class_data in enumerate(classes_data):
         try:
             # Validate department access
             if current_user.role == "hod" and class_data.get("department_id") != current_user.department_id:
                 errors.append(f"Row {i+1}: Access denied to department {class_data.get('department_id')}")
                 continue
-            
+
             # Validate department exists
             department = db.query(Department).filter(Department.id == class_data.get("department_id")).first()
             if not department:
                 errors.append(f"Row {i+1}: Department not found")
                 continue
-            
+
             # Validate semester exists
             semester = db.query(Semester).filter(Semester.id == class_data.get("semester_id")).first()
             if not semester:
                 errors.append(f"Row {i+1}: Semester not found")
                 continue
-            
+
             # Validate class teacher if provided
             if class_data.get("class_teacher_id"):
                 teacher = db.query(User).filter(
@@ -760,7 +806,7 @@ async def bulk_create_classes(
                 if not teacher:
                     errors.append(f"Row {i+1}: Invalid class teacher")
                     continue
-            
+
             # Validate CR if provided
             if class_data.get("cr_id"):
                 cr = db.query(User).filter(
@@ -771,7 +817,7 @@ async def bulk_create_classes(
                 if not cr:
                     errors.append(f"Row {i+1}: Invalid class representative")
                     continue
-            
+
             # Create class
             new_class = Class(
                 name=class_data["name"],
@@ -784,11 +830,11 @@ async def bulk_create_classes(
                 description=class_data.get("description"),
                 created_at=datetime.utcnow()
             )
-            
+
             db.add(new_class)
             db.commit()
             db.refresh(new_class)
-            
+
             created_classes.append({
                 "id": new_class.id,
                 "name": new_class.name,
@@ -796,75 +842,14 @@ async def bulk_create_classes(
                 "department_id": new_class.department_id,
                 "semester_id": new_class.semester_id
             })
-            
+
         except Exception as e:
             errors.append(f"Row {i+1}: {str(e)}")
             continue
-    
+
     return {
         "message": f"Created {len(created_classes)} classes successfully",
         "created_classes": created_classes,
-        "errors": errors
-    }
-
-@app.post("/api/classes/bulk-update")
-async def bulk_update_classes(
-    bulk_data: dict,
-    db: Session = Depends(get_db),
-    current_user_id: int = Depends(RoleChecker(["admin", "hod"]))
-):
-    """Bulk update classes"""
-    current_user = db.query(User).filter(User.id == current_user_id).first()
-    if not current_user:
-        raise HTTPException(status_code=404, detail="Current user not found")
-    
-    updates_data = bulk_data.get("updates", [])
-    if not updates_data:
-        raise HTTPException(status_code=400, detail="No updates data provided")
-    
-    updated_classes = []
-    errors = []
-    
-    for i, update_data in enumerate(updates_data):
-        try:
-            class_id = update_data.get("class_id")
-            if not class_id:
-                errors.append(f"Row {i+1}: Class ID is required")
-                continue
-            
-            # Get class
-            class_obj = db.query(Class).filter(Class.id == class_id).first()
-            if not class_obj:
-                errors.append(f"Row {i+1}: Class not found")
-                continue
-            
-            # Check permissions
-            if current_user.role == "hod" and class_obj.department_id != current_user.department_id:
-                errors.append(f"Row {i+1}: Access denied")
-                continue
-            
-            # Update fields
-            update_fields = update_data.get("fields", {})
-            for field, value in update_fields.items():
-                if hasattr(class_obj, field) and field not in ["id", "created_at"]:
-                    setattr(class_obj, field, value)
-            
-            class_obj.updated_at = datetime.utcnow()
-            db.commit()
-            
-            updated_classes.append({
-                "id": class_obj.id,
-                "name": class_obj.name,
-                "updated_fields": list(update_fields.keys())
-            })
-            
-        except Exception as e:
-            errors.append(f"Row {i+1}: {str(e)}")
-            continue
-    
-    return {
-        "message": f"Updated {len(updated_classes)} classes successfully",
-        "updated_classes": updated_classes,
         "errors": errors
     }
 
@@ -878,24 +863,24 @@ async def bulk_enroll_students(
     current_user = db.query(User).filter(User.id == current_user_id).first()
     if not current_user:
         raise HTTPException(status_code=404, detail="Current user not found")
-    
+
     class_id = enrollment_data.get("class_id")
     student_ids = enrollment_data.get("student_ids", [])
-    
+
     if not class_id or not student_ids:
         raise HTTPException(status_code=400, detail="Class ID and student IDs are required")
-    
+
     # Validate class exists and permissions
     class_obj = db.query(Class).filter(Class.id == class_id).first()
     if not class_obj:
         raise HTTPException(status_code=404, detail="Class not found")
-    
+
     if current_user.role == "hod" and class_obj.department_id != current_user.department_id:
         raise HTTPException(status_code=403, detail="Access denied")
-    
+
     enrolled_students = []
     errors = []
-    
+
     for student_id in student_ids:
         try:
             # Validate student exists and permissions
@@ -904,27 +889,27 @@ async def bulk_enroll_students(
                 User.role == "student",
                 User.department_id == class_obj.department_id
             ).first()
-            
+
             if not student:
                 errors.append(f"Student {student_id} not found or access denied")
                 continue
-            
+
             # Check if already enrolled
             if student.class_id == class_id:
                 errors.append(f"Student {student_id} already enrolled in this class")
                 continue
-            
+
             # Enroll student
             student.class_id = class_id
             student.updated_at = datetime.utcnow()
-            
+
             # Create semester enrollment if not exists
             existing_enrollment = db.query(StudentSemesterEnrollment).filter(
                 StudentSemesterEnrollment.student_id == student_id,
                 StudentSemesterEnrollment.semester_id == class_obj.semester_id,
                 StudentSemesterEnrollment.status == "active"
             ).first()
-            
+
             if not existing_enrollment:
                 enrollment = StudentSemesterEnrollment(
                     student_id=student_id,
@@ -933,19 +918,19 @@ async def bulk_enroll_students(
                     status="active"
                 )
                 db.add(enrollment)
-            
+
             enrolled_students.append({
                 "student_id": student_id,
                 "student_name": f"{student.first_name} {student.last_name}",
                 "class_id": class_id
             })
-            
+
         except Exception as e:
             errors.append(f"Student {student_id}: {str(e)}")
             continue
-    
+
     db.commit()
-    
+
     return {
         "message": f"Enrolled {len(enrolled_students)} students successfully",
         "enrolled_students": enrolled_students,

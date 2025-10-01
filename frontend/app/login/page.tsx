@@ -140,7 +140,7 @@ export default function LoginPage() {
           <div className="mt-6 text-center text-sm text-muted-foreground">
             <div className="space-y-1">
               <p><strong>Demo Credentials:</strong></p>
-              <p>Admin: admin / admin</p>
+              <p>Admin: admin / admin123</p>
               <p><em>Note: Other user passwords need to be configured</em></p>
             </div>
             <button

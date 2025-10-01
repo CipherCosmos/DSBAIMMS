@@ -9,6 +9,22 @@ class ApiClient {
     timeout: 30000, // Increased timeout to 30 seconds
   })
 
+  constructor() {
+    // Add request interceptor to include auth token
+    this.client.interceptors.request.use(
+      (config) => {
+        const token = getAccessToken()
+        if (token) {
+          config.headers.Authorization = `Bearer ${token}`
+        }
+        return config
+      },
+      (error) => {
+        return Promise.reject(error)
+      }
+    )
+  }
+
   // Generic HTTP methods with consistent response handling
   async get(url: string, config?: any) {
     try {
@@ -19,7 +35,12 @@ class ApiClient {
         success: true
       }
     } catch (error: any) {
-      throw error
+      return {
+        data: null,
+        status: error.response?.status || 500,
+        success: false,
+        error: error.response?.data?.detail || error.message || 'Request failed'
+      }
     }
   }
 
@@ -32,7 +53,12 @@ class ApiClient {
         success: true
       }
     } catch (error: any) {
-      throw error
+      return {
+        data: null,
+        status: error.response?.status || 500,
+        success: false,
+        error: error.response?.data?.detail || error.message || 'Request failed'
+      }
     }
   }
 
@@ -45,7 +71,12 @@ class ApiClient {
         success: true
       }
     } catch (error: any) {
-      throw error
+      return {
+        data: null,
+        status: error.response?.status || 500,
+        success: false,
+        error: error.response?.data?.detail || error.message || 'Request failed'
+      }
     }
   }
 
@@ -58,7 +89,12 @@ class ApiClient {
         success: true
       }
     } catch (error: any) {
-      throw error
+      return {
+        data: null,
+        status: error.response?.status || 500,
+        success: false,
+        error: error.response?.data?.detail || error.message || 'Request failed'
+      }
     }
   }
 
@@ -131,6 +167,18 @@ class ApiClient {
 
   async getUserStats() {
     return this.get('/api/users/stats')
+  }
+
+  async getAvailableRoles() {
+    return this.get('/api/users/available-roles')
+  }
+
+  async getFieldConfig(role: string) {
+    return this.get(`/api/users/field-config/${role}`)
+  }
+
+  async getAvailableHODs() {
+    return this.get('/api/departments/available-hods')
   }
 
   async assignSubjects(userId: number, subjects: number[]) {
@@ -493,7 +541,7 @@ class ApiClient {
   }
 
   async getCOPOPerformance(params?: any) {
-    return this.get('/api/analytics/co-po', { params })
+    return this.get('/api/copo-mappings', { params })
   }
 
   // Enhanced Analytics Endpoints
@@ -621,63 +669,155 @@ class ApiClient {
     return this.get('/api/notifications/stats')
   }
 
-  constructor() {
-    // Request interceptor to add auth token
-    this.client.interceptors.request.use(
-      (config) => {
-        const token = getAccessToken()
-        if (token) {
-          config.headers.Authorization = `Bearer ${token}`
-          console.log('API Request with token:', config.url, token.substring(0, 20) + '...')
-        } else {
-          console.log('API Request without token:', config.url)
-        }
-        return config
-      },
-      (error) => Promise.reject(error)
-    )
+  async getUnreadNotificationCount() {
+    return this.get('/api/notifications/unread-count')
+  }
 
-    // Response interceptor to handle errors
-    this.client.interceptors.response.use(
-      (response) => {
-        // Don't extract data from auth endpoints to preserve full response structure
-        if (response.config?.url?.includes('/api/auth/')) {
-          return response
-        }
-        // Return the full response object to preserve structure and status codes
-        return response
-      },
-      (error) => {
-        console.error('API Error:', {
-          url: error.config?.url,
-          method: error.config?.method,
-          status: error.response?.status,
-          message: error.response?.data?.detail || error.message
-        })
+  async getSystemMetrics() {
+    return this.get('/api/system/metrics')
+  }
 
-        if (error.response?.status === 401) {
-          // Only redirect to login if we're not already on the login page
-          // and if the request was not for getting current user (to avoid redirect loops)
-          const isLoginPage = window.location.pathname === '/login'
-          const isGetCurrentUser = error.config?.url?.includes('/api/auth/me')
-          
-          if (!isLoginPage && !isGetCurrentUser) {
-            localStorage.removeItem('access_token')
-            localStorage.removeItem('refresh_token')
-            window.location.href = '/login'
-          }
-        }
-        
-        // Return a structured error object for consistent handling
-        return Promise.reject({
-          status: error.response?.status || 500,
-          message: error.response?.data?.detail || error.message || 'An unexpected error occurred',
-          data: error.response?.data,
-          url: error.config?.url,
-          method: error.config?.method
-        })
-      }
-    )
+  async getSystemAlerts() {
+    return this.get('/api/system/alerts')
+  }
+
+  async getSystemHealth() {
+    return this.get('/api/system/health')
+  }
+
+  async getCOAttainment(params?: any) {
+    return this.get('/api/analytics/co-attainment', { params })
+  }
+
+  async getPOAttainment(params?: any) {
+    return this.get('/api/analytics/po-attainment', { params })
+  }
+
+  async getQuestionBanks(params?: any) {
+    return this.get('/api/question-banks', { params })
+  }
+
+  async getQuestionBankQuestions(bankId: number) {
+    return this.get(`/api/question-banks/${bankId}/questions`)
+  }
+
+  async getAttendanceRecords(params?: any) {
+    return this.get('/api/attendance', { params })
+  }
+
+  // Question Bank Management
+  async createQuestionBank(bankData: any) {
+    return this.post('/api/question-banks', bankData)
+  }
+
+  async deleteQuestionBank(bankId: number) {
+    return this.delete(`/api/question-banks/${bankId}`)
+  }
+
+  async removeQuestionFromBank(bankId: number, questionId: number) {
+    return this.delete(`/api/question-banks/${bankId}/questions/${questionId}`)
+  }
+
+  async addQuestionToBank(bankId: number, questionId: number) {
+    return this.post(`/api/question-banks/${bankId}/questions`, { question_id: questionId })
+  }
+
+  // Notification Management
+  async markNotificationAsRead(notificationId: number) {
+    return this.put(`/api/notifications/${notificationId}/read`)
+  }
+
+  async markAllNotificationsAsRead() {
+    return this.put('/api/notifications/read-all')
+  }
+
+  async deleteNotification(notificationId: number) {
+    return this.delete(`/api/notifications/${notificationId}`)
+  }
+
+  // Attendance Management
+  async createAttendanceRecord(attendanceData: any) {
+    return this.post('/api/attendance', attendanceData)
+  }
+
+  async updateAttendanceRecord(attendanceId: number, attendanceData: any) {
+    return this.put(`/api/attendance/${attendanceId}`, attendanceData)
+  }
+
+  async deleteAttendanceRecord(attendanceId: number) {
+    return this.delete(`/api/attendance/${attendanceId}`)
+  }
+
+  // Predictive Analytics
+  async trainModels() {
+    return this.post('/api/analytics/train-models')
+  }
+
+  async getPerformancePredictions(filters?: any) {
+    return this.get('/api/analytics/performance-predictions', { params: filters })
+  }
+
+  async getTrendAnalysis(metric: string, timeRange: string) {
+    return this.get('/api/analytics/trend-analysis', { 
+      params: { metric, time_range: timeRange } 
+    })
+  }
+
+  async getRiskAssessment(studentId: number, filters?: any) {
+    return this.get('/api/analytics/risk-assessment', { 
+      params: { student_id: studentId, ...filters } 
+    })
+  }
+
+  async getPredictiveInsights() {
+    return this.get('/api/analytics/predictive-insights')
+  }
+
+  async generateRecommendations(studentId: number, context: any) {
+    return this.post('/api/analytics/generate-recommendations', {
+      student_id: studentId,
+      context
+    })
+  }
+
+  async getCOPOPerformanceAnalysis(filters?: any) {
+    return this.get('/api/analytics/copo-attainment-analysis', { params: filters })
+  }
+
+  async getEarlyWarningSignals() {
+    return this.get('/api/analytics/early-warning-signals')
+  }
+
+  async predictExamOutcomes(examId: number, studentIds: number[]) {
+    return this.post('/api/analytics/predict-exam-outcomes', {
+      exam_id: examId,
+      student_ids: studentIds
+    })
+  }
+
+  async getModelPerformance() {
+    return this.get('/api/analytics/model-performance')
+  }
+
+  // Promotion Management
+  async getPromotionStudents(params?: any) {
+    return this.get('/api/students/promotion', { params })
+  }
+
+  async getPromotionBatches(params?: any) {
+    return this.get('/api/promotion/batches', { params })
+  }
+
+  async downloadMarksTemplate(examId: number) {
+    return this.get(`/api/marks/template/${examId}`, { responseType: 'blob' })
+  }
+
+  async calculateCOAttainment(examId: number) {
+    return this.post(`/api/copo/calculate-attainment`, { exam_id: examId })
+  }
+
+  async deleteMark(markId: number) {
+    return this.delete(`/api/marks/${markId}`)
   }
 }
 

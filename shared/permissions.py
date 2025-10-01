@@ -6,7 +6,7 @@ from typing import Dict
 
 class UserRole(Enum):
     ADMIN = "admin"
-    HOD = "hod" 
+    HOD = "hod"
     TEACHER = "teacher"
     STUDENT = "student"
 
@@ -16,40 +16,40 @@ class Permission(Enum):
     UPDATE_DEPARTMENTS = "update_departments"
     DELETE_DEPARTMENTS = "delete_departments"
     VIEW_DEPARTMENTS = "view_departments"
-    
+
     # Class Management
     CREATE_CLASSES = "create_classes"
     UPDATE_CLASSES = "update_classes"
     DELETE_CLASSES = "delete_classes"
     VIEW_CLASSES = "view_classes"
-    
+
     # User Management
     CREATE_USERS = "create_users"
     UPDATE_USERS = "update_users"
     DELETE_USERS = "delete_users"
     VIEW_USERS = "view_users"
-    
+
     # Subject Management
     CREATE_SUBJECTS = "create_subjects"
     UPDATE_SUBJECTS = "update_subjects"
     DELETE_SUBJECTS = "delete_subjects"
     VIEW_SUBJECTS = "view_subjects"
-    
+
     # Exam Management
     CREATE_EXAM_CONFIGURATIONS = "create_exam_configurations"
     VIEW_EXAM_CONFIGURATIONS = "view_exam_configurations"
     QUESTION_BANK_MANAGEMENT = "question_bank_management"
     MARKS_ENTRY_INTERFACE = "marks_entry_interface"
     VIEW_MARKS = "view_marks"
-    
+
     # Analytics & Reports
     PERFORMANCE_DASHBOARDS = "performance_dashboards"
     EXPORT_FUNCTIONALITY = "export_functionality"
-    
+
     # Profile Management
     UPDATE_PERSONAL_DETAILS = "update_personal_details"
     CHANGE_PASSWORDS = "change_passwords"
-    
+
     # Notifications
     SEND_NOTIFICATIONS = "send_notifications"
     RECEIVE_NOTIFICATIONS = "receive_notifications"
@@ -183,7 +183,7 @@ class PermissionChecker:
             return permission_level != "no_access"
         except ValueError:
             return False
-    
+
     @staticmethod
     def get_permission_level(user_role: str, permission: Permission) -> str:
         try:

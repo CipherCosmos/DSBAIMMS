@@ -81,7 +81,7 @@ export class ErrorBoundary extends Component<Props, State> {
                 Something went wrong
               </CardTitle>
               <p className="text-gray-600 mt-2">
-                We're sorry, but something unexpected happened. Please try refreshing the page or contact support if the problem persists.
+                We&apos;re sorry, but something unexpected happened. Please try refreshing the page or contact support if the problem persists.
               </p>
             </CardHeader>
             

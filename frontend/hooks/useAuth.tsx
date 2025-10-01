@@ -21,18 +21,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const initAuth = async () => {
       const token = getAccessToken()
-      console.log('Initializing auth, token exists:', !!token)
       
       // Always check token validity on app start
       if (token) {
         try {
-          console.log('Getting current user with token...')
           await getCurrentUser()
-          console.log('Current user data received:', user)
         } catch (error: any) {
-          console.error('Failed to get current user:', error)
           // Clear tokens and user data on any error
-          console.log('Auth error, clearing tokens and user data')
           clearAuthTokens()
           setUser(null)
         }
@@ -40,7 +35,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // No token, ensure user is not authenticated
         setUser(null)
       }
-      console.log('Auth initialization complete')
     }
 
     initAuth()
@@ -48,11 +42,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = async (username: string, password: string) => {
     try {
-      console.log('Attempting login for user:', username)
       await useAuthStore.getState().login({ username, password })
-      console.log('Login successful')
     } catch (error: any) {
-      console.error('Login failed:', error)
       throw new Error(error.message || 'Login failed')
     }
   }

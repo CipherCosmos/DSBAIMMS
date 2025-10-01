@@ -10,7 +10,6 @@ import { Loader2 } from 'lucide-react'
 export default function DashboardPage() {
   const { user, isLoading } = useAuth()
 
-  console.log('DashboardPage - user:', user, 'isLoading:', isLoading)
 
   if (isLoading) {
     return (
@@ -34,7 +33,6 @@ export default function DashboardPage() {
   }
 
   try {
-    console.log('Rendering dashboard for role:', user.role)
     
     switch (user.role) {
       case 'admin':

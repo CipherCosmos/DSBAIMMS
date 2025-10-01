@@ -10,7 +10,7 @@ import pandas as pd
 from io import BytesIO, StringIO
 
 from shared.database import get_db
-from shared.models import Subject, Department, Class, User, Semester, CO, PO, TeacherSubject, AuditLog
+from shared.models import Subject, Department, Class, User, Semester, CO, PO, TeacherSubject, AuditLog, Exam
 from shared.auth import RoleChecker
 from shared.schemas import SubjectResponse, SubjectCreate, SubjectUpdate
 from shared.permissions import PermissionChecker
@@ -56,24 +56,7 @@ class SubjectAnalytics(BaseModel):
 class BulkSubjectCreate(BaseModel):
     subjects: List[SubjectCreateEnhanced]
 
-def log_audit(db: Session, user_id: int, action: str, table_name: str, record_id: int = None,
-              old_values: dict = None, new_values: dict = None):
-    """Log audit trail"""
-    import json
-    
-    audit_log = AuditLog(
-        user_id=user_id,
-        action=action,
-        table_name=table_name,
-        record_id=record_id,
-        old_values=json.dumps(old_values) if old_values else None,
-        new_values=json.dumps(new_values) if new_values else None,
-        created_at=datetime.utcnow()
-    )
-    db.add(audit_log)
-    db.commit()
 
-# Root endpoint
 @app.get("/")
 async def root():
     return {"message": "Subjects Service", "version": "1.0.0"}
@@ -92,14 +75,11 @@ async def get_subjects(
 ):
     """Get subjects with role-based filtering"""
     current_user = db.query(User).filter(User.id == current_user_id).first()
-    
+
     query = db.query(Subject).options(
         joinedload(Subject.department),
-        joinedload(Subject.semester),
-        joinedload(Subject.class_),
-        joinedload(Subject.teacher)
     )
-    
+
     # Apply role-based filtering
     if current_user.role == "hod":
         query = query.filter(Subject.department_id == current_user.department_id)
@@ -111,7 +91,7 @@ async def get_subjects(
             query = query.filter(Subject.id.in_(subject_ids))
         else:
             query = query.filter(False)  # No access if no subjects assigned
-    
+
     # Apply filters
     if department_id:
         query = query.filter(Subject.department_id == department_id)
@@ -121,9 +101,39 @@ async def get_subjects(
         query = query.filter(Subject.class_id == class_id)
     if teacher_id:
         query = query.filter(Subject.teacher_id == teacher_id)
-    
+
     subjects = query.offset(skip).limit(limit).all()
-    return subjects
+    
+    # Format response to match SubjectResponse schema
+    result = []
+    for subject in subjects:
+        # Count teachers for this subject
+        teachers_count = db.query(TeacherSubject).filter(TeacherSubject.subject_id == subject.id).count()
+        
+        # Count exams for this subject
+        exams_count = db.query(Exam).filter(Exam.subject_id == subject.id).count()
+        
+        result.append(SubjectResponse(
+            id=subject.id,
+            name=subject.name,
+            code=subject.code,
+            description=subject.description,
+            credits=subject.credits,
+            theory_marks=subject.theory_marks,
+            practical_marks=subject.practical_marks,
+            department_id=subject.department_id,
+            class_id=subject.class_id,
+            teacher_id=subject.teacher_id,
+            is_active=subject.is_active,
+            department_name=subject.department.name if subject.department else "Unknown",
+            semester_name="Unknown",  # TODO: Add semester support
+            teachers_count=teachers_count,
+            exams_count=exams_count,
+            created_at=subject.created_at,
+            updated_at=subject.updated_at
+        ))
+    
+    return result
 
 # Get subject by ID
 @app.get("/subjects/{subject_id}", response_model=SubjectResponse)
@@ -136,14 +146,11 @@ async def get_subject(
     current_user = db.query(User).filter(User.id == current_user_id).first()
     subject = db.query(Subject).options(
         joinedload(Subject.department),
-        joinedload(Subject.semester),
-        joinedload(Subject.class_),
-        joinedload(Subject.teacher)
     ).filter(Subject.id == subject_id).first()
-    
+
     if not subject:
         raise HTTPException(status_code=404, detail="Subject not found")
-    
+
     # Role-based access control
     if current_user.role == "hod":
         if subject.department_id != current_user.department_id:
@@ -154,8 +161,31 @@ async def get_subject(
         subject_ids = [ts.subject_id for ts in teacher_subjects]
         if subject_id not in subject_ids:
             raise HTTPException(status_code=403, detail="Access denied")
+
+    # Count teachers for this subject
+    teachers_count = db.query(TeacherSubject).filter(TeacherSubject.subject_id == subject.id).count()
     
-    return subject
+    # Count exams for this subject
+    exams_count = db.query(Exam).filter(Exam.subject_id == subject.id).count()
+    
+    return SubjectResponse(
+        id=subject.id,
+        name=subject.name,
+        code=subject.code,
+        description=subject.description,
+        credits=subject.credits,
+        theory_marks=subject.theory_marks,
+        practical_marks=subject.practical_marks,
+        department_id=subject.department_id,
+        semester_id=subject.semester_id,
+        is_active=subject.is_active,
+        department_name=subject.department.name if subject.department else "Unknown",
+        semester_name=subject.semester.name if subject.semester else "Unknown",
+        teachers_count=teachers_count,
+        exams_count=exams_count,
+        created_at=subject.created_at,
+        updated_at=subject.updated_at
+    )
 
 # Create subject
 @app.post("/subjects", response_model=SubjectResponse)
@@ -166,28 +196,28 @@ async def create_subject(
 ):
     """Create a new subject"""
     current_user = db.query(User).filter(User.id == current_user_id).first()
-    
+
     # Role-based restrictions
     if current_user.role == "hod":
         # HODs can only create subjects in their department
         if subject_data.department_id != current_user.department_id:
             raise HTTPException(status_code=403, detail="Can only create subjects in your department")
-    
+
     # Validate department exists
     department = db.query(Department).filter(Department.id == subject_data.department_id).first()
     if not department:
         raise HTTPException(status_code=404, detail="Department not found")
-    
+
     # Validate semester exists
     semester = db.query(Semester).filter(Semester.id == subject_data.semester_id).first()
     if not semester:
         raise HTTPException(status_code=404, detail="Semester not found")
-    
+
     # Validate class exists
     class_obj = db.query(Class).filter(Class.id == subject_data.class_id).first()
     if not class_obj:
         raise HTTPException(status_code=404, detail="Class not found")
-    
+
     # Validate teacher if provided
     if subject_data.teacher_id:
         teacher = db.query(User).filter(
@@ -197,7 +227,7 @@ async def create_subject(
         ).first()
         if not teacher:
             raise HTTPException(status_code=404, detail="Teacher not found or not in same department")
-    
+
     # Check if subject code already exists in department
     existing_subject = db.query(Subject).filter(
         Subject.code == subject_data.code,
@@ -205,7 +235,7 @@ async def create_subject(
     ).first()
     if existing_subject:
         raise HTTPException(status_code=400, detail="Subject code already exists in this department")
-    
+
     # Create subject
     new_subject = Subject(
         name=subject_data.name,
@@ -219,11 +249,11 @@ async def create_subject(
         objectives=subject_data.objectives,
         created_at=datetime.utcnow()
     )
-    
+
     db.add(new_subject)
     db.commit()
     db.refresh(new_subject)
-    
+
     # Create teacher-subject mapping if teacher is assigned
     if subject_data.teacher_id:
         teacher_subject = TeacherSubject(
@@ -233,7 +263,7 @@ async def create_subject(
         )
         db.add(teacher_subject)
         db.commit()
-    
+
     # Log audit
     log_audit(db, current_user_id, "CREATE", "Subject", new_subject.id, None, {
         "name": subject_data.name,
@@ -241,7 +271,7 @@ async def create_subject(
         "department_id": subject_data.department_id,
         "class_id": subject_data.class_id
     })
-    
+
     return new_subject
 
 # Update subject
@@ -255,15 +285,15 @@ async def update_subject(
     """Update subject information"""
     current_user = db.query(User).filter(User.id == current_user_id).first()
     subject = db.query(Subject).filter(Subject.id == subject_id).first()
-    
+
     if not subject:
         raise HTTPException(status_code=404, detail="Subject not found")
-    
+
     # Role-based access control
     if current_user.role == "hod":
         if subject.department_id != current_user.department_id:
             raise HTTPException(status_code=403, detail="Can only update subjects in your department")
-    
+
     # Store old values for audit
     old_values = {
         "name": subject.name,
@@ -273,7 +303,7 @@ async def update_subject(
         "description": subject.description,
         "objectives": subject.objectives
     }
-    
+
     # Validate teacher if being updated
     if subject_data.teacher_id is not None:
         if subject_data.teacher_id:
@@ -284,7 +314,7 @@ async def update_subject(
             ).first()
             if not teacher:
                 raise HTTPException(status_code=404, detail="Teacher not found or not in same department")
-    
+
     # Validate subject code if being updated
     if subject_data.code is not None and subject_data.code != subject.code:
         existing_subject = db.query(Subject).filter(
@@ -294,7 +324,7 @@ async def update_subject(
         ).first()
         if existing_subject:
             raise HTTPException(status_code=400, detail="Subject code already exists in this department")
-    
+
     # Update fields
     if subject_data.name is not None:
         subject.name = subject_data.name
@@ -308,14 +338,14 @@ async def update_subject(
         subject.description = subject_data.description
     if subject_data.objectives is not None:
         subject.objectives = subject_data.objectives
-    
+
     subject.updated_at = datetime.utcnow()
-    
+
     # Update teacher-subject mapping
     if subject_data.teacher_id is not None:
         # Remove existing mapping
         db.query(TeacherSubject).filter(TeacherSubject.subject_id == subject_id).delete()
-        
+
         # Create new mapping if teacher is assigned
         if subject_data.teacher_id:
             teacher_subject = TeacherSubject(
@@ -324,10 +354,10 @@ async def update_subject(
                 assigned_at=datetime.utcnow()
             )
             db.add(teacher_subject)
-    
+
     db.commit()
     db.refresh(subject)
-    
+
     # Log audit
     log_audit(db, current_user_id, "UPDATE", "Subject", subject_id, old_values, {
         "name": subject.name,
@@ -337,7 +367,7 @@ async def update_subject(
         "description": subject.description,
         "objectives": subject.objectives
     })
-    
+
     return subject
 
 # Delete subject
@@ -350,42 +380,42 @@ async def delete_subject(
     """Delete subject"""
     current_user = db.query(User).filter(User.id == current_user_id).first()
     subject = db.query(Subject).filter(Subject.id == subject_id).first()
-    
+
     if not subject:
         raise HTTPException(status_code=404, detail="Subject not found")
-    
+
     # Role-based restrictions
     if current_user.role == "hod":
         if subject.department_id != current_user.department_id:
             raise HTTPException(status_code=403, detail="Can only delete subjects in your department")
-    
+
     # Check if subject has exams
     from shared.models import Exam
     exam_count = db.query(Exam).filter(Exam.subject_id == subject_id).count()
     if exam_count > 0:
         raise HTTPException(status_code=400, detail=f"Cannot delete subject with {exam_count} exams. Please delete exams first.")
-    
+
     # Check if subject has COs
     co_count = db.query(CO).filter(CO.subject_id == subject_id).count()
     if co_count > 0:
         raise HTTPException(status_code=400, detail=f"Cannot delete subject with {co_count} Course Outcomes. Please delete COs first.")
-    
+
     # Remove teacher-subject mappings
     db.query(TeacherSubject).filter(TeacherSubject.subject_id == subject_id).delete()
-    
+
     # Soft delete
     subject.is_active = False
     subject.updated_at = datetime.utcnow()
-    
+
     db.commit()
-    
+
     # Log audit
     log_audit(db, current_user_id, "DELETE", "Subject", subject_id, {
         "name": subject.name,
         "code": subject.code,
         "department_id": subject.department_id
     }, None)
-    
+
     return {"message": "Subject deleted successfully"}
 
 # Get subject analytics
@@ -397,21 +427,20 @@ async def get_subject_analytics(
 ):
     """Get subject analytics and statistics"""
     current_user = db.query(User).filter(User.id == current_user_id).first()
-    
+
     query = db.query(Subject).options(
         joinedload(Subject.department),
-        joinedload(Subject.semester),
         joinedload(Subject.class_)
     )
-    
+
     # Apply role-based filtering
     if current_user.role == "hod":
         query = query.filter(Subject.department_id == current_user.department_id)
     elif department_id:
         query = query.filter(Subject.department_id == department_id)
-    
+
     subjects = query.all()
-    
+
     # Calculate analytics
     total_subjects = len(subjects)
     subjects_by_department = {}
@@ -419,7 +448,7 @@ async def get_subject_analytics(
     subjects_by_class = {}
     subjects_without_teachers = 0
     total_credits = 0
-    
+
     for subject in subjects:
         # By department
         if subject.department:
@@ -428,7 +457,7 @@ async def get_subject_analytics(
                 subjects_by_department[dept_name] += 1
             else:
                 subjects_by_department[dept_name] = 1
-        
+
         # By semester
         if subject.semester:
             sem_name = subject.semester.name
@@ -436,7 +465,7 @@ async def get_subject_analytics(
                 subjects_by_semester[sem_name] += 1
             else:
                 subjects_by_semester[sem_name] = 1
-        
+
         # By class
         if subject.class_:
             class_name = f"{subject.class_.name} - {subject.class_.section}"
@@ -444,17 +473,17 @@ async def get_subject_analytics(
                 subjects_by_class[class_name] += 1
             else:
                 subjects_by_class[class_name] = 1
-        
+
         # Count subjects without teachers
         if not subject.teacher_id:
             subjects_without_teachers += 1
-        
+
         # Sum credits
         if subject.credits:
             total_credits += subject.credits
-    
+
     average_credits = total_credits / total_subjects if total_subjects > 0 else 0
-    
+
     return SubjectAnalytics(
         total_subjects=total_subjects,
         subjects_by_department=subjects_by_department,
@@ -474,35 +503,35 @@ async def bulk_update_subjects(
     current_user = db.query(User).filter(User.id == current_user_id).first()
     subject_ids = request.get("subject_ids", [])
     update_data = request.get("update_data", {})
-    
+
     if not subject_ids:
         raise HTTPException(status_code=400, detail="No subject IDs provided")
-    
+
     updated_subjects = []
     for subject_id in subject_ids:
         subject = db.query(Subject).filter(Subject.id == subject_id).first()
         if not subject:
             continue
-            
+
         # Role-based access control
         if current_user.role == "hod":
             if subject.department_id != current_user.department_id:
                 continue
-        
+
         # Update subject data
         for field, value in update_data.items():
             if hasattr(subject, field) and field not in ["id", "created_at", "updated_at"]:
                 setattr(subject, field, value)
-        
+
         db.commit()
         updated_subjects.append(subject_id)
-    
+
     # Log audit
     log_audit(db, current_user_id, "BULK_UPDATE", "Subject", None, None, {
         "subject_ids": updated_subjects,
         "update_data": update_data
     })
-    
+
     return {
         "message": f"Updated {len(updated_subjects)} subjects",
         "updated_subjects": updated_subjects
@@ -517,21 +546,21 @@ async def bulk_delete_subjects(
     """Bulk delete subjects"""
     current_user = db.query(User).filter(User.id == current_user_id).first()
     subject_ids = request.get("subject_ids", [])
-    
+
     if not subject_ids:
         raise HTTPException(status_code=400, detail="No subject IDs provided")
-    
+
     deleted_subjects = []
     for subject_id in subject_ids:
         subject = db.query(Subject).filter(Subject.id == subject_id).first()
         if not subject:
             continue
-            
+
         # Role-based access control
         if current_user.role == "hod":
             if subject.department_id != current_user.department_id:
                 continue
-        
+
         # Store subject data for audit
         subject_data = {
             "id": subject.id,
@@ -541,17 +570,17 @@ async def bulk_delete_subjects(
             "department_id": subject.department_id,
             "semester_id": subject.semester_id
         }
-        
+
         db.delete(subject)
         deleted_subjects.append({"id": subject_id, "data": subject_data})
-    
+
     db.commit()
-    
+
     # Log audit
     log_audit(db, current_user_id, "BULK_DELETE", "Subject", None, None, {
         "deleted_subjects": deleted_subjects
     })
-    
+
     return {
         "message": f"Deleted {len(deleted_subjects)} subjects",
         "deleted_subjects": [s["id"] for s in deleted_subjects]
@@ -568,15 +597,12 @@ async def export_subjects(
 ):
     """Export subjects data in CSV or PDF format"""
     current_user = db.query(User).filter(User.id == current_user_id).first()
-    
+
     # Build query
     query = db.query(Subject).options(
         joinedload(Subject.department),
-        joinedload(Subject.semester),
-        joinedload(Subject.class_),
-        joinedload(Subject.teacher)
     )
-    
+
     # Apply role-based filtering
     if current_user.role == "hod":
         query = query.filter(Subject.department_id == current_user.department_id)
@@ -584,28 +610,28 @@ async def export_subjects(
         query = query.filter(Subject.teacher_id == current_user_id)
     elif department_id:
         query = query.filter(Subject.department_id == department_id)
-    
+
     if semester_id:
         query = query.filter(Subject.semester_id == semester_id)
-    
+
     if teacher_id:
         query = query.filter(Subject.teacher_id == teacher_id)
-    
+
     subjects = query.all()
-    
+
     if format.lower() == "csv":
         import csv
         import io
-        
+
         output = io.StringIO()
         writer = csv.writer(output)
-        
+
         # Write header
         writer.writerow([
-            "ID", "Name", "Code", "Credits", "Department", "Semester", 
+            "ID", "Name", "Code", "Credits", "Department", "Semester",
             "Class", "Teacher", "Created At"
         ])
-        
+
         # Write data
         for subject in subjects:
             writer.writerow([
@@ -619,33 +645,33 @@ async def export_subjects(
                 subject.teacher.full_name if subject.teacher else "",
                 subject.created_at.isoformat() if subject.created_at else ""
             ])
-        
+
         csv_data = output.getvalue()
         output.close()
-        
+
         return Response(
             content=csv_data,
             media_type="text/csv",
             headers={"Content-Disposition": f"attachment; filename=subjects_export.csv"}
         )
-    
+
     elif format.lower() == "pdf":
         from reportlab.lib.pagesizes import letter
         from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
         from reportlab.lib.styles import getSampleStyleSheet
         from reportlab.lib import colors
         import io
-        
+
         buffer = io.BytesIO()
         doc = SimpleDocTemplate(buffer, pagesize=letter)
         styles = getSampleStyleSheet()
-        
+
         # Title
         title = Paragraph("Subjects Export Report", styles['Title'])
-        
+
         # Table data
         data = [["ID", "Name", "Code", "Credits", "Department", "Semester", "Class", "Teacher"]]
-        
+
         for subject in subjects:
             data.append([
                 str(subject.id),
@@ -657,7 +683,7 @@ async def export_subjects(
                 subject.class_.name if subject.class_ else "",
                 subject.teacher.full_name if subject.teacher else ""
             ])
-        
+
         table = Table(data)
         table.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
@@ -669,21 +695,21 @@ async def export_subjects(
             ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
             ('GRID', (0, 0), (-1, -1), 1, colors.black)
         ]))
-        
+
         # Build PDF
         elements = [title, Spacer(1, 12), table]
         doc.build(elements)
-        
+
         buffer.seek(0)
         pdf_data = buffer.getvalue()
         buffer.close()
-        
+
         return Response(
             content=pdf_data,
             media_type="application/pdf",
             headers={"Content-Disposition": f"attachment; filename=subjects_export.pdf"}
         )
-    
+
     else:
         raise HTTPException(status_code=400, detail="Unsupported format. Use 'csv' or 'pdf'")
 
@@ -698,39 +724,39 @@ async def bulk_create_subjects(
     current_user = db.query(User).filter(User.id == current_user_id).first()
     if not current_user:
         raise HTTPException(status_code=404, detail="Current user not found")
-    
+
     subjects_data = bulk_data.get("subjects", [])
     if not subjects_data:
         raise HTTPException(status_code=400, detail="No subjects data provided")
-    
+
     created_subjects = []
     errors = []
-    
+
     for i, subject_data in enumerate(subjects_data):
         try:
             # Validate department access
             if current_user.role == "hod" and subject_data.get("department_id") != current_user.department_id:
                 errors.append(f"Row {i+1}: Access denied to department {subject_data.get('department_id')}")
                 continue
-            
+
             # Validate department exists
             department = db.query(Department).filter(Department.id == subject_data.get("department_id")).first()
             if not department:
                 errors.append(f"Row {i+1}: Department not found")
                 continue
-            
+
             # Validate semester exists
             semester = db.query(Semester).filter(Semester.id == subject_data.get("semester_id")).first()
             if not semester:
                 errors.append(f"Row {i+1}: Semester not found")
                 continue
-            
+
             # Validate class exists
             class_obj = db.query(Class).filter(Class.id == subject_data.get("class_id")).first()
             if not class_obj:
                 errors.append(f"Row {i+1}: Class not found")
                 continue
-            
+
             # Validate teacher if provided
             if subject_data.get("teacher_id"):
                 teacher = db.query(User).filter(
@@ -741,7 +767,7 @@ async def bulk_create_subjects(
                 if not teacher:
                     errors.append(f"Row {i+1}: Invalid teacher")
                     continue
-            
+
             # Check if subject code already exists
             existing_subject = db.query(Subject).filter(
                 Subject.code == subject_data["code"],
@@ -750,7 +776,7 @@ async def bulk_create_subjects(
             if existing_subject:
                 errors.append(f"Row {i+1}: Subject code already exists")
                 continue
-            
+
             # Create subject
             new_subject = Subject(
                 name=subject_data["name"],
@@ -764,11 +790,11 @@ async def bulk_create_subjects(
                 objectives=subject_data.get("objectives"),
                 created_at=datetime.utcnow()
             )
-            
+
             db.add(new_subject)
             db.commit()
             db.refresh(new_subject)
-            
+
             # Create teacher-subject mapping if teacher is assigned
             if new_subject.teacher_id:
                 teacher_subject = TeacherSubject(
@@ -778,7 +804,7 @@ async def bulk_create_subjects(
                 )
                 db.add(teacher_subject)
                 db.commit()
-            
+
             created_subjects.append({
                 "id": new_subject.id,
                 "name": new_subject.name,
@@ -788,11 +814,11 @@ async def bulk_create_subjects(
                 "class_id": new_subject.class_id,
                 "teacher_id": new_subject.teacher_id
             })
-            
+
         except Exception as e:
             errors.append(f"Row {i+1}: {str(e)}")
             continue
-    
+
     return {
         "message": f"Created {len(created_subjects)} subjects successfully",
         "created_subjects": created_subjects,
@@ -809,33 +835,33 @@ async def bulk_assign_teachers(
     current_user = db.query(User).filter(User.id == current_user_id).first()
     if not current_user:
         raise HTTPException(status_code=404, detail="Current user not found")
-    
+
     assignments = assignment_data.get("assignments", [])
     if not assignments:
         raise HTTPException(status_code=400, detail="No assignments data provided")
-    
+
     assigned_subjects = []
     errors = []
-    
+
     for i, assignment in enumerate(assignments):
         try:
             subject_id = assignment.get("subject_id")
             teacher_id = assignment.get("teacher_id")
-            
+
             if not subject_id or not teacher_id:
                 errors.append(f"Row {i+1}: Subject ID and Teacher ID are required")
                 continue
-            
+
             # Validate subject exists and permissions
             subject = db.query(Subject).filter(Subject.id == subject_id).first()
             if not subject:
                 errors.append(f"Row {i+1}: Subject not found")
                 continue
-            
+
             if current_user.role == "hod" and subject.department_id != current_user.department_id:
                 errors.append(f"Row {i+1}: Access denied to subject")
                 continue
-            
+
             # Validate teacher exists and permissions
             teacher = db.query(User).filter(
                 User.id == teacher_id,
@@ -845,21 +871,21 @@ async def bulk_assign_teachers(
             if not teacher:
                 errors.append(f"Row {i+1}: Invalid teacher")
                 continue
-            
+
             # Check if assignment already exists
             existing_assignment = db.query(TeacherSubject).filter(
                 TeacherSubject.teacher_id == teacher_id,
                 TeacherSubject.subject_id == subject_id
             ).first()
-            
+
             if existing_assignment:
                 errors.append(f"Row {i+1}: Teacher already assigned to this subject")
                 continue
-            
+
             # Assign teacher to subject
             subject.teacher_id = teacher_id
             subject.updated_at = datetime.utcnow()
-            
+
             # Create teacher-subject mapping
             teacher_subject = TeacherSubject(
                 teacher_id=teacher_id,
@@ -868,83 +894,21 @@ async def bulk_assign_teachers(
             )
             db.add(teacher_subject)
             db.commit()
-            
+
             assigned_subjects.append({
                 "subject_id": subject_id,
                 "subject_name": subject.name,
                 "teacher_id": teacher_id,
                 "teacher_name": f"{teacher.first_name} {teacher.last_name}"
             })
-            
+
         except Exception as e:
             errors.append(f"Row {i+1}: {str(e)}")
             continue
-    
+
     return {
         "message": f"Assigned {len(assigned_subjects)} subjects successfully",
         "assigned_subjects": assigned_subjects,
-        "errors": errors
-    }
-
-@app.post("/api/subjects/bulk-update")
-async def bulk_update_subjects(
-    bulk_data: dict,
-    db: Session = Depends(get_db),
-    current_user_id: int = Depends(RoleChecker(["admin", "hod"]))
-):
-    """Bulk update subjects"""
-    current_user = db.query(User).filter(User.id == current_user_id).first()
-    if not current_user:
-        raise HTTPException(status_code=404, detail="Current user not found")
-    
-    updates_data = bulk_data.get("updates", [])
-    if not updates_data:
-        raise HTTPException(status_code=400, detail="No updates data provided")
-    
-    updated_subjects = []
-    errors = []
-    
-    for i, update_data in enumerate(updates_data):
-        try:
-            subject_id = update_data.get("subject_id")
-            if not subject_id:
-                errors.append(f"Row {i+1}: Subject ID is required")
-                continue
-            
-            # Get subject
-            subject = db.query(Subject).filter(Subject.id == subject_id).first()
-            if not subject:
-                errors.append(f"Row {i+1}: Subject not found")
-                continue
-            
-            # Check permissions
-            if current_user.role == "hod" and subject.department_id != current_user.department_id:
-                errors.append(f"Row {i+1}: Access denied")
-                continue
-            
-            # Update fields
-            update_fields = update_data.get("fields", {})
-            for field, value in update_fields.items():
-                if hasattr(subject, field) and field not in ["id", "created_at"]:
-                    setattr(subject, field, value)
-            
-            subject.updated_at = datetime.utcnow()
-            db.commit()
-            
-            updated_subjects.append({
-                "id": subject.id,
-                "name": subject.name,
-                "code": subject.code,
-                "updated_fields": list(update_fields.keys())
-            })
-            
-        except Exception as e:
-            errors.append(f"Row {i+1}: {str(e)}")
-            continue
-    
-    return {
-        "message": f"Updated {len(updated_subjects)} subjects successfully",
-        "updated_subjects": updated_subjects,
         "errors": errors
     }
 

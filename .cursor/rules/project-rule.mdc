@@ -1,0 +1,310 @@
+---
+description:"# Comprehensive LMS Specification — Admin, HOD, Teacher, Student Views with Semester Context
+
+## Overview
+
+This document provides a **detailed functional and analytical specification** for a Learning Management System (LMS) aimed at higher education institutions. The system covers **multi-level roles** (Admin/Principal, HOD, Teacher, Student), supports the **academic hierarchy** (Department → Semester → Class → Subject → Exam → Student), integrates **advanced analytics and bulk operations**, and follows a **scalable, secure microservice-based architecture**. You must carefully study the entire codebase, as some partial implementations already exist. Enhancements and integrations should follow this specification closely, ensuring accuracy, completeness, and long-term maintainability.
+
+---
+
+## Core Data Hierarchy
+
+1. **Institution → Departments**
+
+   * Each department contains:
+
+     * Assigned HOD
+     * Academic year(s)
+     * Duration (auto-calculated from year & semesters)
+     * Number of semesters
+     * Associated classes, subjects, teachers, and students
+
+2. **Department → Semesters**
+
+   * Each department contains multiple semesters.
+   * A semester contains classes, subjects, exams, and enrolled students.
+   * Data continuity between semesters must be maintained (e.g., student promotion to next semester).
+
+3. **Semester → Classes**
+
+   * Each semester includes multiple classes (e.g., BCA 2nd Year A, B, C).
+   * Class attributes:
+
+     * Class Teacher assignment
+     * Class Representative (CR)
+     * Enrolled Students
+     * Linked Subjects
+     * Exams per subject
+     * Semester progress tracking
+
+4. **Class → Subjects**
+
+   * Each subject belongs to a semester and is mapped to one or more classes.
+   * Each subject has:
+
+     * Assigned Teacher(s)
+     * Student enrollment mapping
+     * CO (Course Outcomes) and PO (Program Outcomes) targets
+     * Linked exams and performance history
+
+5. **Subject → Exams**
+
+   * Exams belong to subjects and are conducted per class/semester.
+   * Attributes:
+
+     * Exam structure: Sections A, B, C (optional/sub-questions allowed)
+     * Question metadata: Bloom’s taxonomy level, difficulty level
+     * Question → CO mapping → auto PO mapping
+     * Student attempts and marks
+     * Exam weightage and result calculation rules
+
+6. **Student → Exam Attempts**
+
+   * Each student attempts multiple exams per subject, across multiple semesters.
+   * Attempt data includes:
+
+     * Answers per question (with optional/sub-question handling)
+     * Marks obtained (auto-calculated from rules)
+     * CO/PO contribution
+     * Performance history across semesters and subjects
+
+---
+
+## Role-Based Features
+
+### 1. Admin (Principal) View
+
+* **Department Management**
+
+  * Create/manage departments
+  * Assign HODs
+  * Configure academic year, semesters, duration
+
+* **Class Management**
+
+  * Create/manage classes within semesters
+  * Assign Class Teachers and CRs
+  * Link classes with subjects and students
+
+* **User Management**
+
+  * Create/manage HODs, Teachers, Students, and other Admins
+  * Minimum user data: username, password, role
+  * Dynamic role-based attributes
+  * Map users to departments, classes, subjects
+
+* **Subject Management**
+
+  * CRUD for subjects
+  * Assign teachers, link with semesters and classes
+
+* **CO/PO Management**
+
+  * Define and manage COs and POs
+  * Set thresholds/targets for measurement
+
+* **Global Analytics**
+
+  * Department-wise performance
+  * Semester-wise performance
+  * Class-level trends
+  * Subject-level analysis
+  * Exam-level analytics
+  * Teacher effectiveness across institution
+  * Student performance tracking (class + individual)
+  * CO/PO attainment at all levels
+  * Bloom’s taxonomy attainment metrics
+  * Difficulty level mastery
+  * Attendance vs performance correlation
+  * Attrition/dropout vs academic performance
+
+* **Platform Analytics**
+
+  * Active users, concurrency
+  * Security monitoring (login attempts, activity logs)
+  * System uptime/health
+
+* **Bulk Operations**
+
+  * Bulk user creation
+  * Bulk enrollment
+  * Bulk subject upload
+  * Bulk exam/marks upload
+  * Validation templates for structured data
+
+---
+
+### 2. HOD View
+
+* **Scope:** Department-only.
+
+* **Class Management**
+
+  * CRUD on classes within department
+  * Assign Class Teachers and CRs
+
+* **User Management**
+
+  * Create/manage teachers and students
+  * Cannot create HODs or Admins
+
+* **Subject Management**
+
+  * CRUD for department subjects
+  * Teacher assignment
+
+* **CO/PO Management**
+
+  * Department-specific CO/PO management
+
+* **Analytics (Department Scope)**
+
+  * Department → Semester → Class → Subject → Exam analysis
+  * Teacher performance metrics (department only)
+  * Student performance (class-wise, individual)
+  * CO/PO, Bloom’s, difficulty-level insights
+  * Export reports (Excel, PDF, CSV)
+
+* **Bulk Operations**
+
+  * Bulk upload (teachers, students, subjects, marks, questions)
+
+---
+
+### 3. Teacher View
+
+* **Exam Management**
+
+  * Create/configure exams for assigned subjects
+  * Handle optional/sub-questions
+  * Map questions to Bloom’s, difficulty, CO → auto PO
+
+* **Marks Entry**
+
+  * UI for entering student marks
+  * Auto-calculation for optional questions (best attempts)
+  * Example: 6×2 marks, answer any 4 → system picks best 4
+
+* **Analytics (Subject Scope)**
+
+  * Question-level analysis
+  * Bloom’s and difficulty distribution
+  * CO/PO attainment tracking
+  * Student-wise performance
+  * Exportable reports
+
+* **Bulk Operations**
+
+  * Bulk upload for questions, marks
+
+---
+
+### 4. Student View
+
+* **Performance Dashboard**
+
+  * Semester-wise results
+  * Subject-wise analysis
+  * Exam-level breakdown
+  * CO/PO attainment (personal)
+  * Bloom’s and difficulty mastery
+  * Personalized improvement suggestions
+
+* **Profile Management**
+
+  * Update contact info, profile picture, password
+
+---
+
+## Common Features
+
+* Profile management for all roles
+* Dynamic UI rendering based on role
+* Security (JWT auth, RBAC, audit logs)
+* Real-time performance with caching, load balancing
+* Microservices design for modularity
+* Bulk operations across roles with validation
+* Long-term data persistence
+
+---
+
+## System Design Principles
+
+1. **Microservices Architecture**
+
+   * Dedicated services: Users, Departments, Classes, Subjects, Exams, Analytics, CO/PO
+   * REST + WebSocket APIs for communication
+
+2. **Database Design**
+
+   * Relational DB for transactional data (Postgres/MySQL)
+   * NoSQL for logs/analytics (MongoDB)
+   * Mapping tables for many-to-many (e.g., Students ↔ Subjects, Teachers ↔ Subjects)
+
+3. **Analytics Pipeline**
+
+   * ETL jobs aggregate data for performance reports
+   * Pre-computed analytics stored in Redis cache
+   * Drill-down available on demand
+
+4. **Scalability & Performance**
+
+   * Load balancing
+   * Async task queues (Kafka/RabbitMQ)
+   * Scalable to lakhs of users
+
+5. **Security**
+
+   * Strict role-based access control
+   * Encrypted sensitive data
+   * Audit trails for all Admin/HOD operations
+
+---
+
+## Acceptance Criteria
+
+* **Admin:** Full institution-level analytics visibility
+* **HOD:** Analytics restricted to own department
+* **Teacher:** Analytics limited to assigned subjects
+* **Student:** Personal analytics only
+* **Optional Questions:** Auto-best-attempt calculation
+* **Persistence:** Analytics must be stored and retrievable anytime
+* **Bulk Features:** Must work with validations and error handling
+
+---
+
+## Conclusion
+
+This LMS provides a **complete academic and analytical ecosystem**. By maintaining hierarchy from **Departments → Semesters → Classes → Subjects → Exams → Students**, it enables granular drilldowns, cross-semester tracking, and multi-level analytics. Role-based access ensures Principals (Admins) get a global view, HODs see department-level insights, Teachers see subject-specific data, and Students see personal dashboards. The system is designed for scalability, security, and long-term maintainability, making it suitable for large institutions handling thousands of students and faculty.
+
+this is my project specification and i want to give this as an instruction or say context to an AI powered IDE like cursor so any canges, implmentation , modification and or anythings they do must refer this for consistancy in development so i can get what exactly i want becouse some time what happens AI start doing somethings else out of requirements. 
+
+so you also mention that if any changes made to any files or code then wherever in entire application that chages affect and need to be changed there then AI do that automatically for consistency and accuracy but only after if current implementation success. they should not do this always because somethings chages too are wrong so if they make changes always whole things will become wrong so any change made and is tested as correct and only update else where. and strictly don't use any mock data or mock implementation of any logic or anyting else.
+
+"
+Strict Development Rules
+
+Specification as Source of Truth
+
+All changes, implementations, modifications, and enhancements must strictly adhere to this specification.
+No deviation or feature implementation outside the documented requirements.
+
+Consistency Across Application
+
+If a change is made in any file/module, and it affects other parts of the application, the AI must automatically update all related parts for consistency and accuracy.
+However, such propagation must happen only after the initial change is verified and tested as correct.
+If the change is wrong or unverified, do not propagate to the rest of the system.
+
+No Mock Data / No Mock Logic
+
+Strictly prohibited: mock implementations, placeholder data, or fake logic.
+All functionality must be real, production-grade, and connected end-to-end.
+
+Focused Fixing Rule
+
+Work one section at a time, starting with the Admin Dashboard.
+Fix only existing features that are partially implemented or non-functional, making them fully functional.
+Do not divert to other roles, dashboards, or new features until the Admin Dashboard is complete and fully working across all layers.
+
+globs:
+alwaysApply: true

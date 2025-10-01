@@ -118,7 +118,10 @@ export default function MarksPage() {
       const formData = new FormData()
       formData.append('file', file)
       
-      await apiClient.uploadMarksExcel(parseInt(selectedExam), formData)
+      await apiClient.post('/api/marks/upload-excel', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        params: { exam_id: selectedExam }
+      })
       toast.success('Marks uploaded successfully')
       loadMarks()
       setShowBulkUpload(false)

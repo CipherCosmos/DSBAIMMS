@@ -5,6 +5,7 @@ import jwt
 import os
 from datetime import datetime, timedelta
 from passlib.context import CryptContext
+from passlib.exc import UnknownHashError
 from fastapi import HTTPException, Depends, Request
 from fastapi.security import HTTPBearer
 import redis
@@ -24,7 +25,19 @@ security = HTTPBearer()
 redis_client = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379"))
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return pwd_context.verify(plain_password, hashed_password)
+    # Try passlib first (for bcrypt hashes)
+    try:
+        return pwd_context.verify(plain_password, hashed_password)
+    except Exception as e:
+        # Check if it's an unknown hash error
+        if "UnknownHashError" in str(type(e)) or "hash could not be identified" in str(e):
+            # Fallback to simple SHA256 hash (for development)
+            import hashlib
+            simple_hash = hashlib.sha256(plain_password.encode()).hexdigest()
+            return simple_hash == hashed_password
+        else:
+            # Re-raise other exceptions
+            raise e
 
 def get_password_hash(password: str) -> str:
     return pwd_context.hash(password)
@@ -35,7 +48,7 @@ def create_access_token(data: dict, expires_delta: timedelta = None):
         expire = datetime.utcnow() + expires_delta
     else:
         expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    
+
     to_encode.update({"exp": expire, "type": "access"})
     return jwt.encode(to_encode, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
@@ -66,7 +79,7 @@ def get_current_user_id_from_header(request: Request):
     auth_header = request.headers.get("Authorization")
     if not auth_header or not auth_header.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Missing or invalid token")
-    
+
     token = auth_header.split(" ")[1]
     payload = verify_token(token)
     user_id = payload.get("sub")
@@ -79,19 +92,19 @@ def get_current_user_from_header(request: Request):
     auth_header = request.headers.get("Authorization")
     if not auth_header or not auth_header.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Missing or invalid token")
-    
+
     token = auth_header.split(" ")[1]
     payload = verify_token(token)
     user_id = payload.get("sub")
     if user_id is None:
         raise HTTPException(status_code=401, detail="Invalid token")
-    
+
     return int(user_id)
 
 def get_current_user_with_role(request: Request):
     """Get current user with role information - FastAPI dependency"""
     user_id = get_current_user_from_header(request)
-    
+
     # Get user from Redis cache first
     try:
         user_data = redis_client.get(f"user:{user_id}")
@@ -105,14 +118,13 @@ def get_current_user_with_role(request: Request):
             }
     except Exception:
         pass
-    
-    # If not in cache, return basic info with admin role for now
-    return {
-        "id": user_id,
-        "role": "admin",  # Default for now
-        "department_id": None,
-        "class_id": None
-    }
+
+    # If not in cache, we need to get from database
+    # This should not happen in production, but we'll handle it gracefully
+    raise HTTPException(
+        status_code=401,
+        detail="User session expired. Please login again."
+    )
 
 def get_current_user_id(request: Request):
     """Get current user ID from token - FastAPI dependency"""
@@ -127,7 +139,7 @@ def require_roles(allowed_roles: List[str]):
     def role_checker(user_info: dict = Depends(get_current_user_info)):
         if user_info["role"] not in allowed_roles:
             raise HTTPException(
-                status_code=403, 
+                status_code=403,
                 detail=f"Access denied. Required roles: {allowed_roles}, User role: {user_info['role']}"
             )
         return user_info["id"]
@@ -177,11 +189,11 @@ class RoleChecker:
     """Role-based access control checker"""
     def __init__(self, allowed_roles: List[str]):
         self.allowed_roles = allowed_roles
-    
+
     def __call__(self, user_info: dict = Depends(get_current_user_info)):
         if user_info["role"] not in self.allowed_roles:
             raise HTTPException(
-                status_code=403, 
+                status_code=403,
                 detail=f"Access denied. Required roles: {self.allowed_roles}, User role: {user_info['role']}"
             )
         return user_info["id"]

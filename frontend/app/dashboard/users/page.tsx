@@ -6,7 +6,7 @@ import { apiClient } from '@/lib/api'
 import { AdminGuard } from '@/components/auth/RoleGuard'
 import { ErrorBoundary } from '@/components/common/ErrorBoundary'
 import { UsersLoading, CardLoading, InlineLoading } from '@/components/common/LoadingSpinner'
-import type { User, Department, Class, Subject, FieldConfig, UserStats, ApiResponse } from '@/types/api'
+import type { User, Subject, FieldConfig, UserStats, ApiResponse } from '@/types/api'
 import { 
   Plus, Edit, Trash2, Users, GraduationCap, Search, Download, Upload, 
   Eye, Filter, RefreshCw, UserCheck, UserX, Mail, Phone, Calendar, 
@@ -178,8 +178,8 @@ function UsersPage() {
 
   const loadFieldConfig = async (role: string) => {
     try {
-      const config = await apiClient.getFieldConfig(role)
-      setFieldConfig(config)
+      const response = await apiClient.getFieldConfig(role)
+      setFieldConfig(response.data)
     } catch (error) {
       console.error('Error loading field config:', error)
       setFieldConfig(null)
@@ -352,7 +352,7 @@ function UsersPage() {
     if (!confirm('Are you sure you want to reset this user\'s password?')) return
 
     try {
-      await apiClient.resetUserPassword(userId)
+      await apiClient.resetPassword(userId)
       toast.success('Password reset email sent to user')
     } catch (error: any) {
       toast.error(error.response?.data?.detail || 'Failed to reset password')
@@ -386,16 +386,16 @@ function UsersPage() {
     try {
       switch (bulkAction) {
         case 'activate':
-          await apiClient.bulkUpdateUsers(selectedUsers, { is_active: true })
+          await Promise.all(selectedUsers.map(id => apiClient.updateUser(id, { is_active: true })))
           toast.success(`${selectedUsers.length} users activated`)
           break
         case 'deactivate':
-          await apiClient.bulkUpdateUsers(selectedUsers, { is_active: false })
+          await Promise.all(selectedUsers.map(id => apiClient.updateUser(id, { is_active: false })))
           toast.success(`${selectedUsers.length} users deactivated`)
           break
         case 'delete':
           if (confirm(`Are you sure you want to delete ${selectedUsers.length} users?`)) {
-            await apiClient.bulkDeleteUsers(selectedUsers)
+            await Promise.all(selectedUsers.map(id => apiClient.deleteUser(id)))
             toast.success(`${selectedUsers.length} users deleted`)
           }
           break
@@ -548,7 +548,7 @@ function UsersPage() {
   const handleExport = async (format: string) => {
     try {
       setLoading(true)
-      const data = await apiClient.exportUsers(format, selectedRole, Number(selectedDepartment))
+      const data = await apiClient.exportUsers(format, { role: selectedRole, department_id: Number(selectedDepartment) })
       
       if (format === 'csv') {
         const blob = new Blob([data.data?.csv_data], { type: 'text/csv' })
@@ -1225,8 +1225,8 @@ function UsersPage() {
                     required
                   >
                     {availableRoles.map(role => (
-                      <option key={role.value} value={role.value}>
-                        {role.label}
+                      <option key={role} value={role}>
+                        {role}
                       </option>
                     ))}
                   </select>
@@ -1543,8 +1543,8 @@ function UsersPage() {
                     required
                   >
                     {availableRoles.map(role => (
-                      <option key={role.value} value={role.value}>
-                        {role.label}
+                      <option key={role} value={role}>
+                        {role}
                       </option>
                     ))}
                   </select>

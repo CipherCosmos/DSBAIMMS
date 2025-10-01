@@ -37,7 +37,9 @@ export function ThemeProvider({
   } catch (error) {
     console.warn('next-themes not available:', error)
     // Fallback ThemeProvider
-    NextThemeProvider = ({ children }: { children: ReactNode }) => <>{children}</>
+    const FallbackThemeProvider = ({ children }: { children: ReactNode }) => <>{children}</>
+    FallbackThemeProvider.displayName = 'FallbackThemeProvider'
+    NextThemeProvider = FallbackThemeProvider
   }
 
   return (

@@ -1,18 +1,162 @@
 _format_version: "3.0"
 
+services:
+  # Auth Service
+  - name: auth-service
+    url: http://auth-service:8010/
+    routes:
+      - name: auth-route
+        strip_path: true
+        paths:
+          - /auth
+      - name: auth-api-route
+        strip_path: true
+        paths:
+          - /api/auth
+
+  # User Service
+  - name: user-service
+    url: http://user-service:8011/
+    routes:
+      - name: user-route
+        strip_path: true
+        paths:
+          - /users
+      - name: user-api-route
+        strip_path: true
+        paths:
+          - /api/users
+
+  # Department Service
+  - name: department-service
+    url: http://department-service:8012/
+    routes:
+      - name: department-route
+        strip_path: true
+        paths:
+          - /departments
+      - name: department-api-route
+        strip_path: true
+        paths:
+          - /api/departments
+
+  # Classes Service
+  - name: classes-service
+    url: http://classes-service:8004/
+    routes:
+      - name: classes-route
+        strip_path: true
+        paths:
+          - /classes
+      - name: classes-api-route
+        strip_path: true
+        paths:
+          - /api/classes
+
+  # Subjects Service
+  - name: subjects-service
+    url: http://subjects-service:8005/
+    routes:
+      - name: subjects-route
+        strip_path: true
+        paths:
+          - /subjects
+      - name: subjects-api-route
+        strip_path: true
+        paths:
+          - /api/subjects
+
+  # Semesters Service
+  - name: semesters-service
+    url: http://semesters-service:8006/
+    routes:
+      - name: semesters-route
+        strip_path: true
+        paths:
+          - /semesters
+      - name: semesters-api-route
+        strip_path: true
+        paths:
+          - /api/semesters
+
+  # Exams Service
+  - name: exams-service
+    url: http://exams-service:8013/
+    routes:
+      - name: exams-route
+        strip_path: true
+        paths:
+          - /exams
+      - name: exams-api-route
+        strip_path: true
+        paths:
+          - /api/exams
+
+  # Marks Service
+  - name: marks-service
+    url: http://marks-service:8014/
+    routes:
+      - name: marks-route
+        strip_path: true
+        paths:
+          - /marks
+      - name: marks-api-route
+        strip_path: true
+        paths:
+          - /api/marks
+
+  # Analytics Service
+  - name: analytics-service
+    url: http://analytics-service:8015/
+    routes:
+      - name: analytics-route
+        strip_path: true
+        paths:
+          - /analytics
+      - name: analytics-api-route
+        strip_path: false
+        paths:
+          - /api/analytics
+
+  # Notifications Service
+  - name: notification-service
+    url: http://notification-service:8018/
+    routes:
+      - name: notification-route
+        strip_path: true
+        paths:
+          - /notifications
+      - name: notification-api-route
+        strip_path: true
+        paths:
+          - /api/notifications
+
+  # COPO Service
+  - name: copo-service
+    url: http://copo-service:8026/
+    routes:
+      - name: copo-route
+        strip_path: true
+        paths:
+          - /copo
+      - name: copo-api-route
+        strip_path: false
+        paths:
+          - /api/copo
+
 plugins:
   - name: cors
     config:
       origins:
         - "http://localhost:3000"
         - "http://127.0.0.1:3000"
+        - "http://172.31.14.251:3000"
       methods:
         - GET
         - POST
         - PUT
         - DELETE
         - OPTIONS
-        - PATCH
       headers:
         - Accept
         - Accept-Version
@@ -24,121 +168,5 @@ plugins:
         - Authorization
       exposed_headers:
         - X-Auth-Token
-        - Set-Cookie
       credentials: true
       max_age: 3600
-
-services:
-  # Core Authentication Service
-  - name: auth-service
-    url: http://auth-service:8010
-    routes:
-      - name: auth
-        paths:
-          - /api/auth
-        strip_path: true
-        path_handling: v0
-
-  # User Management Service
-  - name: user-service
-    url: http://user-service:8011
-    routes:
-      - name: users
-        paths:
-          - /api/users
-        strip_path: true
-        path_handling: v0
-
-  # Department Management Service
-  - name: department-service
-    url: http://department-service:8012
-    routes:
-      - name: departments
-        paths:
-          - /api/departments
-        strip_path: true
-        path_handling: v0
-
-  # Class Management Service
-  - name: classes-service
-    url: http://classes-service:8004
-    routes:
-      - name: classes
-        paths:
-          - /api/classes
-        strip_path: true
-        path_handling: v0
-
-  # Subject Management Service
-  - name: subjects-service
-    url: http://subjects-service:8005
-    routes:
-      - name: subjects
-        paths:
-          - /api/subjects
-        strip_path: true
-        path_handling: v0
-
-  # Semester Management Service
-  - name: semesters-service
-    url: http://semesters-service:8006
-    routes:
-      - name: semesters
-        paths:
-          - /api/semesters
-        strip_path: true
-        path_handling: v0
-
-  # Exam and Question Management Service
-  - name: exams-service
-    url: http://exams-service:8013
-    routes:
-      - name: exams
-        paths:
-          - /api/exams
-          - /api/questions
-        strip_path: true
-        path_handling: v0
-
-  # Marks Management Service
-  - name: marks-service
-    url: http://marks-service:8014
-    routes:
-      - name: marks
-        paths:
-          - /api/marks
-        strip_path: true
-        path_handling: v0
-
-  # Analytics and Reporting Service
-  - name: analytics-service
-    url: http://analytics-service:8015
-    routes:
-      - name: analytics
-        paths:
-          - /api/analytics
-        strip_path: true
-        path_handling: v0
-
-  # Notification Service
-  - name: notification-service
-    url: http://notification-service:8018
-    routes:
-      - name: notifications
-        paths:
-          - /api/notifications
-        strip_path: true
-        path_handling: v0
-
-  # CO/PO Management Service
-  - name: copo-service
-    url: http://copo-service:8026
-    routes:
-      - name: copo
-        paths:
-          - /api/cos
-          - /api/pos
-          - /api/copo-mappings
-          - /api/copo
-        strip_path: true
-        path_handling: v0

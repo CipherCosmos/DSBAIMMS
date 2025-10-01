@@ -9,7 +9,9 @@ import json
 
 from shared.database import get_db
 from shared.models import User, Department, Class, Subject, Exam, Mark, AuditLog, Notification
+from shared.schemas import NotificationResponse
 from shared.auth import RoleChecker
+from shared.audit import log_audit, log_bulk_audit
 
 app = FastAPI(title="Notifications Service", version="1.0.0")
 
@@ -22,29 +24,7 @@ app.add_middleware(
 )
 
 # Notification schemas
-class NotificationCreate(BaseModel):
-    title: str
-    message: str
-    notification_type: str  # exam, marks, announcement, reminder
-    priority: str = "medium"  # low, medium, high, urgent
-    target_roles: Optional[List[str]] = None
-    target_departments: Optional[List[int]] = None
-    target_classes: Optional[List[int]] = None
-    target_users: Optional[List[int]] = None
-    scheduled_at: Optional[str] = None
-    expires_at: Optional[str] = None
-
-class NotificationResponse(BaseModel):
-    id: int
-    title: str
-    message: str
-    notification_type: str
-    priority: str
-    is_read: bool
-    created_at: str
-    scheduled_at: Optional[str]
-    expires_at: Optional[str]
-    sender_name: str
+# Using NotificationCreate from shared.schemas
 
 class NotificationStats(BaseModel):
     total_notifications: int
@@ -53,20 +33,7 @@ class NotificationStats(BaseModel):
     by_priority: Dict[str, int]
     recent_count: int
 
-def log_audit(db: Session, user_id: int, action: str, table_name: str, request: Request = None):
-    """Log audit trail"""
-    audit_log = AuditLog(
-        user_id=user_id,
-        action=action,
-        table_name=table_name,
-        old_values=None,
-        new_values=json.dumps({"timestamp": datetime.utcnow().isoformat()}),
-        ip_address=request.client.host if request else None,
-        user_agent=request.headers.get("user-agent") if request else None,
-        created_at=datetime.utcnow()
-    )
-    db.add(audit_log)
-    db.commit()
+# Audit logging is now handled by shared.audit module
 
 @app.get("/", response_model=Dict[str, str])
 async def root():
@@ -86,20 +53,20 @@ async def get_notifications(
     current_user = db.query(User).filter(User.id == current_user_id).first()
     if not current_user:
         raise HTTPException(status_code=404, detail="Current user not found")
-    
+
     # Query notifications from database
     query = db.query(Notification).filter(Notification.user_id == current_user_id)
-    
+
     # Apply filters
     if is_read is not None:
         query = query.filter(Notification.is_read == is_read)
-    
+
     if notification_type:
         query = query.filter(Notification.type == notification_type)
-    
+
     # Apply pagination
     notifications = query.offset(skip).limit(limit).all()
-    
+
     # Convert to response format
     result = []
     for notification in notifications:
@@ -108,14 +75,14 @@ async def get_notifications(
             title=notification.title,
             message=notification.message,
             notification_type=notification.type,
-            priority="medium",  # Default priority since it's not in the model
+            priority=notification.priority or "medium",
             is_read=notification.is_read,
             created_at=notification.created_at.isoformat() if notification.created_at else None,
-            scheduled_at=None,  # Not in current model
-            expires_at=None,    # Not in current model
-            sender_name="System"  # Default sender
+            scheduled_at=notification.scheduled_at.isoformat() if notification.scheduled_at else None,
+            expires_at=notification.expires_at.isoformat() if notification.expires_at else None,
+            sender_name=notification.sender_name or (notification.sender.full_name if notification.sender else "System")
         ))
-    
+
     return result
 
 @app.post("/api/notifications")
@@ -129,30 +96,30 @@ async def create_notification(
     current_user = db.query(User).filter(User.id == current_user_id).first()
     if not current_user:
         raise HTTPException(status_code=404, detail="Current user not found")
-    
+
     # Validate scheduled and expiry dates
     scheduled_at = None
     expires_at = None
-    
+
     if notification_data.scheduled_at:
         try:
             scheduled_at = datetime.fromisoformat(notification_data.scheduled_at.replace('Z', '+00:00'))
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid scheduled_at format")
-    
+
     if notification_data.expires_at:
         try:
             expires_at = datetime.fromisoformat(notification_data.expires_at.replace('Z', '+00:00'))
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid expires_at format")
-    
+
     # Validate date logic
     if scheduled_at and expires_at and scheduled_at >= expires_at:
         raise HTTPException(status_code=400, detail="expires_at must be after scheduled_at")
-    
+
     # Create notification records for target users
     target_users = []
-    
+
     # Determine target users based on criteria
     if notification_data.target_users:
         target_users = notification_data.target_users
@@ -169,7 +136,7 @@ async def create_notification(
         # Send to all users if no specific targets
         users = db.query(User).all()
         target_users = [user.id for user in users]
-    
+
     # Create notification records
     created_notifications = []
     for user_id in target_users:
@@ -177,18 +144,23 @@ async def create_notification(
             user_id=user_id,
             title=notification_data.title,
             message=notification_data.message,
-            type=notification_data.notification_type,
+            type=notification_data.type,
+            priority=notification_data.priority,
             is_read=False,
-            action_url=None  # Could be enhanced to include action URLs
+            action_url=notification_data.action_url,
+            sender_id=current_user_id,
+            sender_name=notification_data.sender_name or current_user.full_name,
+            scheduled_at=scheduled_at,
+            expires_at=expires_at
         )
         db.add(notification)
         created_notifications.append(notification)
-    
+
     db.commit()
-    
+
     # Log audit
     log_audit(db, current_user_id, "CREATE_NOTIFICATION", "notifications", request=request)
-    
+
     return {
         "message": "Notification created successfully",
         "notification_count": len(created_notifications),
@@ -206,22 +178,22 @@ async def mark_notification_read(
     current_user = db.query(User).filter(User.id == current_user_id).first()
     if not current_user:
         raise HTTPException(status_code=404, detail="Current user not found")
-    
+
     # Find and update the notification
     notification = db.query(Notification).filter(
         Notification.id == notification_id,
         Notification.user_id == current_user_id
     ).first()
-    
+
     if not notification:
         raise HTTPException(status_code=404, detail="Notification not found")
-    
+
     notification.is_read = True
     db.commit()
-    
+
     # Log audit
     log_audit(db, current_user_id, "MARK_NOTIFICATION_READ", "notifications", request=request)
-    
+
     return {"message": "Notification marked as read"}
 
 @app.get("/api/notifications/stats", response_model=NotificationStats)
@@ -233,29 +205,29 @@ async def get_notification_stats(
     current_user = db.query(User).filter(User.id == current_user_id).first()
     if not current_user:
         raise HTTPException(status_code=404, detail="Current user not found")
-    
+
     # Query real statistics from database
     total_notifications = db.query(Notification).filter(Notification.user_id == current_user_id).count()
     unread_count = db.query(Notification).filter(
         Notification.user_id == current_user_id,
         Notification.is_read == False
     ).count()
-    
+
     # Get counts by type
     by_type = {}
     type_counts = db.query(Notification.type, func.count(Notification.id)).filter(
         Notification.user_id == current_user_id
     ).group_by(Notification.type).all()
-    
+
     for notification_type, count in type_counts:
         by_type[notification_type] = count
-    
+
     # Get recent notifications (last 24 hours)
     recent_count = db.query(Notification).filter(
         Notification.user_id == current_user_id,
         Notification.created_at >= datetime.utcnow() - timedelta(days=1)
     ).count()
-    
+
     stats = {
         "total_notifications": total_notifications,
         "unread_count": unread_count,
@@ -268,7 +240,7 @@ async def get_notification_stats(
         },
         "recent_count": recent_count
     }
-    
+
     return NotificationStats(**stats)
 
 @app.get("/health")

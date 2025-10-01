@@ -62,25 +62,7 @@ export type {
   ExamAnalytics 
 } from './exams.service'
 
-export { AnalyticsService } from './analytics.service'
-export type { 
-  DashboardStats, 
-  COAttainmentData, 
-  POAttainmentData, 
-  StudentPerformanceData, 
-  QuestionAnalytics, 
-  ExamAnalyticsData, 
-  TrendData, 
-  MLRecommendation 
-} from './analytics.service'
-
-export { FilesService } from './files.service'
-export type { 
-  UploadFileRequest, 
-  FileRecord, 
-  FileCategory, 
-  StorageStats 
-} from './files.service'
+// Analytics and Files services removed during cleanup
 
 export { NotificationsService } from './notifications.service'
 export type { 
@@ -99,8 +81,7 @@ import { SemestersService } from './semesters.service'
 import { ClassesService } from './classes.service'
 import { SubjectsService } from './subjects.service'
 import { ExamsService } from './exams.service'
-import { AnalyticsService } from './analytics.service'
-import { FilesService } from './files.service'
+// Analytics and Files services removed during cleanup
 import { NotificationsService } from './notifications.service'
 
 // Service instances for easy access
@@ -111,6 +92,5 @@ export const semestersService = new SemestersService()
 export const classesService = new ClassesService()
 export const subjectsService = new SubjectsService()
 export const examsService = new ExamsService()
-export const analyticsService = new AnalyticsService()
-export const filesService = new FilesService()
+// Analytics and Files services removed during cleanup
 export const notificationsService = new NotificationsService()

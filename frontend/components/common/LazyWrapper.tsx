@@ -1,8 +1,7 @@
 'use client'
 
-import { Suspense, lazy, ComponentType, ReactNode } from 'react'
-// Custom ErrorBoundary implementation
-import { Component, ReactNode, ErrorInfo } from 'react'
+import { Suspense, lazy, ComponentType, Component, ErrorInfo } from 'react'
+import type { ReactNode } from 'react'
 
 interface ErrorBoundaryProps {
   children: ReactNode
@@ -100,7 +99,7 @@ export function LazyWrapper({
     <div ref={ref} className={className}>
       {inView ? (
         <ErrorBoundary
-          FallbackComponent={errorFallback ? () => <>{errorFallback}</> : DefaultErrorFallback}
+          fallback={errorFallback ? <>{errorFallback}</> : (props: { error: Error; resetErrorBoundary: () => void }) => <DefaultErrorFallback {...props} />}
         >
           <Suspense fallback={fallback}>
             <motion.div

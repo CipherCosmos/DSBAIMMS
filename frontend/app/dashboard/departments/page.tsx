@@ -262,7 +262,7 @@ function DepartmentsPage() {
     
     if (confirm(`Are you sure you want to delete ${selectedDepartments.length} departments?`)) {
       try {
-        await apiClient.bulkDeleteDepartments(selectedDepartments)
+        await Promise.all(selectedDepartments.map(id => apiClient.deleteDepartment(id)))
         setSelectedDepartments([])
         setShowBulkActions(false)
         loadDepartments()
@@ -277,7 +277,7 @@ function DepartmentsPage() {
 
   const handleBulkCreate = async (departmentsData: any[]) => {
     try {
-      await apiClient.bulkCreateDepartments(departmentsData)
+      await Promise.all(departmentsData.map(dept => apiClient.createDepartment(dept)))
       setShowBulkActions(false)
       loadDepartments()
       toast.success('Departments created successfully')
@@ -290,7 +290,7 @@ function DepartmentsPage() {
 
   const handleBulkUpdate = async (updates: any[]) => {
     try {
-      await apiClient.bulkUpdateDepartments(updates)
+      await Promise.all(updates.map(update => apiClient.updateDepartment(update.id, update.data)))
       setShowBulkActions(false)
       loadDepartments()
       toast.success('Departments updated successfully')

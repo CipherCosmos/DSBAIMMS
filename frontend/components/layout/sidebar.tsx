@@ -152,6 +152,13 @@ const navigationCategories: NavigationCategory[] = [
         allowedRoles: ['admin', 'hod', 'teacher', 'student']
       },
       {
+        name: 'Student Promotion',
+        href: '/dashboard/promotion',
+        icon: GraduationCapIcon,
+        description: 'Manage student promotion',
+        allowedRoles: ['admin', 'hod']
+      },
+      {
         name: 'My Courses',
         href: '/dashboard/courses',
         icon: BookMarked,
@@ -188,6 +195,20 @@ const navigationCategories: NavigationCategory[] = [
     allowedRoles: ['admin', 'hod'],
     collapsible: true,
     items: [
+      {
+        name: 'Bulk Operations',
+        href: '/dashboard/bulk-operations',
+        icon: Upload,
+        description: 'Bulk import/export operations',
+        allowedRoles: ['admin', 'hod']
+      },
+      {
+        name: 'Exam Management',
+        href: '/dashboard/exams',
+        icon: ClipboardList,
+        description: 'Advanced exam management',
+        allowedRoles: ['admin', 'hod', 'teacher']
+      }
     ]
   },
   {

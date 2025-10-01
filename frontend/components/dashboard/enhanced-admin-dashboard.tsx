@@ -15,9 +15,17 @@ interface DashboardStats {
   total_classes: number
   total_subjects: number
   total_exams: number
-  recent_exams: number
-  recent_marks: number
-  avg_co_attainment: number
+  active_students: number
+  active_teachers: number
+  total_marks: number
+  average_performance: number
+  recent_activities: Array<{
+    action: string
+    table_name: string
+    user_id: number
+    created_at: string
+    ip_address: string
+  }>
   // Role-specific additional stats (optional)
   total_students?: number
   total_teachers?: number
@@ -34,31 +42,56 @@ interface DashboardStats {
 }
 
 interface COPOAnalytics {
+  id: number
   co_id: number
-  co_name: string
-  co_description: string
-  subject_name: string
-  total_marks_obtained: number
-  total_max_marks: number
-  attainment_percentage: number
-  attainment_level: string
-  students_count: number
-  students_above_threshold: number
+  po_id: number
+  mapping_strength: number
+  created_at: string
+  updated_at: string
+  co: {
+    id: number
+    name: string
+    description: string
+    subject_id: number
+    department_id: number
+    created_at: string
+    updated_at: string
+  }
+  po: {
+    id: number
+    name: string
+    description: string
+    department_id: number
+    created_at: string
+    updated_at: string
+  }
+  // Optional fields for analytics (may not be present in basic mappings)
+  attainment_percentage?: number
+  student_count?: number
+  average_score?: number
+  bloom_distribution?: Record<string, number>
+  difficulty_distribution?: Record<string, number>
 }
 
 interface StudentPerformance {
-  student_id: number
-  student_name: string
-  student_number: string
+  id: number
+  username: string
+  full_name: string
+  email: string
+  department_id: number
+  department_name: string
+  class_id: number
   class_name: string
-  overall_percentage: number
-  co_attainments: Array<{
-    co_id: number
-    co_name: string
-    attainment_percentage: number
+  is_active: boolean
+  total_exams: number
+  average_percentage: number
+  grade: string
+  performance_trend: Array<{
+    exam_name: string
+    percentage: number
+    date: string
   }>
-  weak_areas: string[]
-  recommendations: string[]
+  last_exam_date: string | null
 }
 
 export function EnhancedAdminDashboard() {
@@ -66,6 +99,8 @@ export function EnhancedAdminDashboard() {
   const [stats, setStats] = useState<DashboardStats | null>(null)
   const [coPoAnalytics, setCoPoAnalytics] = useState<COPOAnalytics[]>([])
   const [studentPerformance, setStudentPerformance] = useState<StudentPerformance[]>([])
+  const [promotionStats, setPromotionStats] = useState<any>(null)
+  const [bulkOperations, setBulkOperations] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState('overview')
@@ -77,41 +112,65 @@ export function EnhancedAdminDashboard() {
   const loadDashboardData = async () => {
     try {
       setLoading(true)
+      
       const [statsData, coPoData, studentData] = await Promise.allSettled([
         apiClient.getDashboardStats(),
         apiClient.getCOPOPerformance(),
-        apiClient.getStudentAnalytics()
+        apiClient.getStudentsAnalytics()
       ])
 
-      console.log('Promise.allSettled results:', {
-        statsData: statsData.status,
-        coPoData: coPoData.status,
-        studentData: studentData.status
-      })
-
       if (statsData.status === 'fulfilled' && statsData.value.success) {
-        console.log('Stats API Response:', statsData.value)
         setStats(statsData.value.data)
       } else {
-        console.error('Stats API Error:', statsData.reason)
+        setStats({
+          total_users: 0,
+          total_departments: 0,
+          total_classes: 0,
+          total_subjects: 0,
+          total_exams: 0,
+          active_students: 0,
+          active_teachers: 0,
+          total_marks: 0,
+          average_performance: 0,
+          recent_activities: []
+        })
       }
       
       if (coPoData.status === 'fulfilled' && coPoData.value.success) {
-        console.log('CO/PO API Response:', coPoData.value)
-        setCoPoAnalytics(coPoData.value.data || [])
+        // Handle both direct array and wrapped object responses
+        const mappings = Array.isArray(coPoData.value.data) 
+          ? coPoData.value.data 
+          : coPoData.value.data?.mappings || []
+        setCoPoAnalytics(mappings)
       } else {
-        console.error('CO/PO API Error:', coPoData.reason)
+        setCoPoAnalytics([])
       }
       
       if (studentData.status === 'fulfilled' && studentData.value.success) {
-        console.log('Student API Response:', studentData.value)
-        setStudentPerformance(studentData.value.data || [])
+        // Handle both direct array and wrapped object responses
+        const students = Array.isArray(studentData.value.data) 
+          ? studentData.value.data 
+          : studentData.value.data?.students || []
+        setStudentPerformance(students)
       } else {
-        console.error('Student API Error:', studentData.reason)
+        setStudentPerformance([])
       }
     } catch (error) {
-      console.error('Error loading dashboard data:', error)
       setError('Failed to load dashboard data')
+      setStats({
+        total_users: 0,
+        total_departments: 0,
+        total_classes: 0,
+        total_subjects: 0,
+        total_exams: 0,
+        active_students: 0,
+        active_teachers: 0,
+        total_marks: 0,
+        average_performance: 0,
+        recent_activities: []
+      })
+      setCoPoAnalytics([])
+      setStudentPerformance([])
     } finally {
       setLoading(false)
     }
@@ -155,14 +214,14 @@ export function EnhancedAdminDashboard() {
     },
     {
       name: 'Students',
-      value: stats?.total_students || 0,
+      value: stats?.active_students || 0,
       icon: GraduationCap,
       color: 'bg-pink-500',
       href: '/dashboard/users?role=student'
     },
     {
       name: 'Teachers',
-      value: stats?.total_teachers || 0,
+      value: stats?.active_teachers || 0,
       icon: Users,
       color: 'bg-teal-500',
       href: '/dashboard/users?role=teacher'
@@ -184,10 +243,22 @@ export function EnhancedAdminDashboard() {
       color: 'text-blue-600 hover:bg-blue-50'
     },
     {
-      name: 'Bulk User Upload',
+      name: 'Student Promotion',
+      icon: GraduationCap,
+      action: () => router.push('/dashboard/promotion'),
+      color: 'text-indigo-600 hover:bg-indigo-50'
+    },
+    {
+      name: 'Bulk Operations',
       icon: Upload,
-      action: () => router.push('/dashboard/bulk?type=users'),
+      action: () => router.push('/dashboard/bulk-operations'),
       color: 'text-green-600 hover:bg-green-50'
+    },
+    {
+      name: 'Exam Management',
+      icon: FileText,
+      action: () => router.push('/dashboard/exams'),
+      color: 'text-amber-600 hover:bg-amber-50'
     },
     {
       name: 'System Analytics',
@@ -237,14 +308,6 @@ export function EnhancedAdminDashboard() {
     )
   }
 
-  // Debug logging
-  console.log('Dashboard State:', {
-    stats,
-    coPoAnalytics,
-    studentPerformance,
-    loading,
-    error
-  })
 
   return (
     <div className="space-y-6">
@@ -346,9 +409,11 @@ export function EnhancedAdminDashboard() {
                 <div key={index} className="flex items-center p-3 bg-gray-50 rounded-lg">
                   <Activity className="h-5 w-5 text-blue-500 mr-3" />
                   <div className="flex-1">
-                    <p className="text-sm text-gray-900">{activity.description}</p>
+                    <p className="text-sm text-gray-900">
+                      {activity.action} on {activity.table_name}
+                    </p>
                     <p className="text-xs text-gray-500">
-                      {new Date(activity.timestamp).toLocaleString()}
+                      {activity.created_at ? new Date(activity.created_at).toLocaleString() : 'Unknown time'}
                     </p>
                   </div>
                 </div>
@@ -369,44 +434,49 @@ export function EnhancedAdminDashboard() {
                 <thead className="bg-gray-50">
                   <tr>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">CO</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Subject</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">PO</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Attainment %</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Level</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Students Above Threshold</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Students</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Avg Score</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {(coPoAnalytics || []).map((item, index) => (
+                  {(coPoAnalytics || []).length > 0 ? (coPoAnalytics || []).map((item, index) => (
                     <tr key={index}>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                        {item.co_name}
+                        {item.co.name}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {item.subject_name}
+                        {item.po.name}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         <div className="flex items-center">
                           <div className="w-16 bg-gray-200 rounded-full h-2 mr-2">
                             <div 
                               className="bg-blue-600 h-2 rounded-full" 
-                              style={{ width: `${Math.min(item.attainment_percentage, 100)}%` }}
+                              style={{ width: `${Math.min(item.attainment_percentage || 0, 100)}%` }}
                             ></div>
                           </div>
-                          <span>{item.attainment_percentage.toFixed(1)}%</span>
+                          <span>{(item.attainment_percentage || 0).toFixed(1)}%</span>
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
-                          item.attainment_level === 'Exceeds' ? 'bg-green-100 text-green-800' :
-                          item.attainment_level === 'Meets' ? 'bg-blue-100 text-blue-800' :
+                          (item.attainment_percentage || 0) >= 80 ? 'bg-green-100 text-green-800' :
+                          (item.attainment_percentage || 0) >= 60 ? 'bg-blue-100 text-blue-800' :
                           'bg-red-100 text-red-800'
                         }`}>
-                          {item.attainment_level}
+                          {(item.attainment_percentage || 0) >= 80 ? 'Exceeds' :
+                           (item.attainment_percentage || 0) >= 60 ? 'Meets' : 'Below'}
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {item.students_above_threshold} / {item.students_count}
+                        {item.student_count || 'N/A'}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {item.average_score ? item.average_score.toFixed(1) : 'N/A'}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         <button className="text-blue-600 hover:text-blue-900">
@@ -414,7 +484,13 @@ export function EnhancedAdminDashboard() {
                         </button>
                       </td>
                     </tr>
-                  ))}
+                  )) : (
+                    <tr>
+                      <td colSpan={7} className="px-6 py-8 text-center text-gray-500">
+                        No CO/PO analytics data available
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
@@ -436,16 +512,16 @@ export function EnhancedAdminDashboard() {
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Class</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Percentage</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Grade</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">GPA</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Attendance</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Exams</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {(studentPerformance || []).map((student, index) => (
+                  {(studentPerformance || []).length > 0 ? (studentPerformance || []).map((student, index) => (
                     <tr key={index}>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                        {student.student_name}
+                        {student.full_name}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         {student.class_name}
@@ -455,28 +531,32 @@ export function EnhancedAdminDashboard() {
                           <div className="w-16 bg-gray-200 rounded-full h-2 mr-2">
                             <div 
                               className="bg-green-600 h-2 rounded-full" 
-                              style={{ width: `${Math.min(student.overall_percentage, 100)}%` }}
+                              style={{ width: `${Math.min(student.average_percentage, 100)}%` }}
                             ></div>
                           </div>
-                          <span>{student.overall_percentage.toFixed(1)}%</span>
+                          <span>{student.average_percentage.toFixed(1)}%</span>
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         <span className={`px-2 py-1 text-xs font-medium rounded-full ${
-                          (student as any).overall_grade === 'A+' || (student as any).overall_grade === 'A' 
+                          student.grade === 'A+' || student.grade === 'A' 
                             ? 'bg-green-100 text-green-800'
-                            : (student as any).overall_grade === 'B+' || (student as any).overall_grade === 'B'
+                            : student.grade === 'B+' || student.grade === 'B'
                             ? 'bg-blue-100 text-blue-800'
                             : 'bg-yellow-100 text-yellow-800'
                         }`}>
-                          {(student as any).overall_grade}
+                          {student.grade}
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {(student as any).gpa?.toFixed(2) || 0}
+                        {student.total_exams} exams
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {(student as any).attendance_percentage?.toFixed(1) || 0}%
+                        <span className={`px-2 py-1 text-xs font-medium rounded-full ${
+                          student.is_active ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                        }`}>
+                          {student.is_active ? 'Active' : 'Inactive'}
+                        </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         <button className="text-blue-600 hover:text-blue-900">
@@ -484,7 +564,13 @@ export function EnhancedAdminDashboard() {
                         </button>
                       </td>
                     </tr>
-                  ))}
+                  )) : (
+                    <tr>
+                      <td colSpan={7} className="px-6 py-8 text-center text-gray-500">
+                        No student performance data available
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
@@ -498,24 +584,33 @@ export function EnhancedAdminDashboard() {
           <div className="bg-white rounded-lg shadow p-6">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">System Activities</h3>
             <div className="space-y-3">
-              {(stats as any)?.recent_activities?.map((activity: any, index: number) => (
-                <div key={index} className="flex items-center p-4 bg-gray-50 rounded-lg">
-                  <div className="flex-shrink-0">
-                    <Activity className="h-6 w-6 text-blue-500" />
+              {(stats as any)?.recent_activities?.length > 0 ? (
+                (stats as any)?.recent_activities?.map((activity: any, index: number) => (
+                  <div key={index} className="flex items-center p-4 bg-gray-50 rounded-lg">
+                    <div className="flex-shrink-0">
+                      <Activity className="h-6 w-6 text-blue-500" />
+                    </div>
+                    <div className="ml-4 flex-1">
+                      <p className="text-sm font-medium text-gray-900">
+                        {activity.action} on {activity.table_name}
+                      </p>
+                      <p className="text-sm text-gray-500">
+                        User ID: {activity.user_id} • {new Date(activity.created_at).toLocaleString()}
+                      </p>
+                    </div>
+                    <div className="flex-shrink-0">
+                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                        {activity.action}
+                      </span>
+                    </div>
                   </div>
-                  <div className="ml-4 flex-1">
-                    <p className="text-sm font-medium text-gray-900">{activity.description}</p>
-                    <p className="text-sm text-gray-500">
-                      {new Date(activity.timestamp).toLocaleString()}
-                    </p>
-                  </div>
-                  <div className="flex-shrink-0">
-                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                      {activity.type}
-                    </span>
-                  </div>
+                ))
+              ) : (
+                <div className="text-center py-8 text-gray-500">
+                  <Activity className="h-12 w-12 mx-auto mb-4 text-gray-300" />
+                  <p>No recent activities found</p>
                 </div>
-              ))}
+              )}
             </div>
           </div>
         </div>
